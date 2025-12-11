@@ -86,6 +86,11 @@ K=0.054
 RANDOM_SEED=1
 INIT_TYPE="gaussians"
 
+# Time step parameters
+DT=1
+SNAP_DT=10
+TEND=50
+
 # Get F and k values for the pattern (from the original pattern definitions)
 case "${PATTERN}" in
     "gliders")
@@ -127,6 +132,9 @@ echo "  F:            ${F}"
 echo "  k:            ${K}"
 echo "  Random Seed:  ${RANDOM_SEED}"
 echo "  Init Type:    ${INIT_TYPE}"
+echo "  Time Step:    ${DT}"
+echo "  Snapshot dt:  ${SNAP_DT}"
+echo "  Final Time:   ${TEND}"
 echo "========================================"
 
 # Log file
@@ -136,7 +144,7 @@ LOG_FILE="${LOG_DIR}/${PATTERN}_${INIT_TYPE}_${RANDOM_SEED}_$(date +%Y%m%d_%H%M%
 echo "Starting simulation (log: ${LOG_FILE})"
 echo "Progress will be shown below and saved to log file..."
 echo ""
-${MATLAB_CMD} -batch "addpath('${SCRIPT_DIR}'); addpath('${CHEBFUN_DIR}'); gen_gs('${PATTERN}', ${DELTA_U}, ${DELTA_V}, ${F}, ${K}, ${RANDOM_SEED}, '${INIT_TYPE}')" \
+${MATLAB_CMD} -batch "addpath('${SCRIPT_DIR}'); addpath('${CHEBFUN_DIR}'); gen_gs('${PATTERN}', ${DELTA_U}, ${DELTA_V}, ${F}, ${K}, ${RANDOM_SEED}, '${INIT_TYPE}', ${DT}, ${SNAP_DT}, ${TEND})" \
     2>&1 | tee "${LOG_FILE}"
 
 EXIT_CODE=$?
