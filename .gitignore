@@ -1,0 +1,19 @@
+# Chebfun library (downloaded dependency)
+chebfun/
+
+# MATLAB temporary files
+*.asv
+*.m~
+
+# Log files
+logs/
+
+# Snapshot files
+snapshots/
+
+# MATLAB temp directory
+matlab_tmp/
+
+# SLURM output files
+*.out
+results/00_slrm_logs/

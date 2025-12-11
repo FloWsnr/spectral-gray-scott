@@ -34,13 +34,21 @@
 
 set -e  # Exit on error
 
+# Load MATLAB module
+module load MATLAB/2025a
+
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SNAPSHOT_DIR="${SCRIPT_DIR}/snapshots"
 LOG_DIR="${SCRIPT_DIR}/logs"
 
-# MATLAB executable (modify if needed)
-MATLAB_CMD="matlab"
+# Configure MATLAB temp directory to use HPC work directory
+# (prevents filling up small SSDs with large temporary files)
+export MATLAB_TMPDIR="${HPCWORK}/matlab_tmp"
+mkdir -p "${MATLAB_TMPDIR}"
+
+# MATLAB executable with proper HPC flags
+MATLAB_CMD="matlab -singleCompThread -nodisplay -nodesktop -nosplash"
 
 # Print banner
 echo "========================================"
@@ -54,6 +62,20 @@ echo "========================================"
 # Create necessary directories
 mkdir -p "${SNAPSHOT_DIR}"
 mkdir -p "${LOG_DIR}"
+
+# Setup Chebfun
+CHEBFUN_DIR="${SCRIPT_DIR}/chebfun"
+if [ ! -d "${CHEBFUN_DIR}" ]; then
+    echo "Chebfun not found. Installing Chebfun..."
+    cd "${SCRIPT_DIR}"
+    wget -q https://github.com/chebfun/chebfun/archive/master.zip -O chebfun.zip
+    unzip -q chebfun.zip
+    mv chebfun-master chebfun
+    rm chebfun.zip
+    echo "Chebfun installed to ${CHEBFUN_DIR}"
+else
+    echo "Chebfun found at ${CHEBFUN_DIR}"
+fi
 
 # Single simulation parameters
 PATTERN="gliders"
@@ -112,8 +134,10 @@ LOG_FILE="${LOG_DIR}/${PATTERN}_${INIT_TYPE}_${RANDOM_SEED}_$(date +%Y%m%d_%H%M%
 
 # Run MATLAB simulation
 echo "Starting simulation (log: ${LOG_FILE})"
-${MATLAB_CMD} -batch "addpath('${SCRIPT_DIR}'); gen_gs('${PATTERN}', ${DELTA_U}, ${DELTA_V}, ${F}, ${K}, ${RANDOM_SEED}, '${INIT_TYPE}')" \
-    > "${LOG_FILE}" 2>&1
+echo "Progress will be shown below and saved to log file..."
+echo ""
+${MATLAB_CMD} -batch "addpath('${SCRIPT_DIR}'); addpath('${CHEBFUN_DIR}'); gen_gs('${PATTERN}', ${DELTA_U}, ${DELTA_V}, ${F}, ${K}, ${RANDOM_SEED}, '${INIT_TYPE}')" \
+    2>&1 | tee "${LOG_FILE}"
 
 EXIT_CODE=$?
 
