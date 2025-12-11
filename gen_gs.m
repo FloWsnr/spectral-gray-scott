@@ -1,8 +1,8 @@
-function gen_gs(pattern, delta_u, delta_v, F, k, random_seed, init_type)
+function gen_gs(pattern, delta_u, delta_v, F, k, random_seed, init_type, dt, snap_dt, tend)
 % GEN_GS Generate a single Gray-Scott pattern simulation
 %
 % Syntax:
-%   gen_gs(pattern, delta_u, delta_v, F, k, random_seed, init_type)
+%   gen_gs(pattern, delta_u, delta_v, F, k, random_seed, init_type, dt, snap_dt, tend)
 %
 % Parameters:
 %   pattern       - Pattern type: 'gliders', 'bubbles', 'maze', 'worms', 'spirals', 'spots'
@@ -12,6 +12,9 @@ function gen_gs(pattern, delta_u, delta_v, F, k, random_seed, init_type)
 %   k             - Kill rate parameter
 %   random_seed   - Random seed for reproducibility (also used for output filename)
 %   init_type     - Initialization type: 'gaussians' or 'fourier'
+%   dt            - Time step size (optional, default: 1)
+%   snap_dt       - Snapshot interval (optional, default: 10)
+%   tend          - Final time (optional, default: 10000)
 
 pattern = lower(pattern);
 init_type = lower(init_type);
@@ -21,15 +24,23 @@ if ~ismember(init_type, {'gaussians', 'fourier'})
     error('init_type must be either ''gaussians'' or ''fourier''');
 end
 
+% Set default values for optional time parameters
+if nargin < 8 || isempty(dt)
+    dt = 1;
+end
+if nargin < 9 || isempty(snap_dt)
+    snap_dt = 10;
+end
+if nargin < 10 || isempty(tend)
+    tend = 10000;
+end
+
 % Set random seed
 rng(random_seed);
 
 % Simulation parameters
 dom = [-1 1 -1 1];
 n = 128;
-dt = 1;
-snap_dt = 10;
-tend = 10000;
 tspan = 0:snap_dt:tend;
 
 pref = spinpref2();
@@ -102,39 +113,48 @@ try
         mkdir(subfolder);
     end
 
-    % Extract numerical data from chebfun objects for numpy/HDF5
-    fprintf('Converting chebfun data to numerical arrays...\n');
-    num_snapshots = length(uv);
+    % Convert chebfun data to arrays and save to HDF5
+    fprintf('Converting chebfun data to arrays...\n');
 
-    % Get values on a grid
-    [xx, yy] = meshgrid(linspace(dom(1), dom(2), n), linspace(dom(3), dom(4), n));
+    % Get dimensions
+    [~, num_snapshots] = size(uv);
+    fprintf('  Number of snapshots: %d\n', num_snapshots);
+
+    % Set up grid for evaluation (Chebyshev points)
+    x = chebpts(n, dom(1:2));
+    y = chebpts(n, dom(3:4));
+    [XX, YY] = meshgrid(x, y);
 
     % Preallocate arrays
-    u_snapshots = zeros(n, n, num_snapshots);
-    v_snapshots = zeros(n, n, num_snapshots);
+    u_data = zeros(n, n, num_snapshots);
+    v_data = zeros(n, n, num_snapshots);
 
-    for i = 1:num_snapshots
-        u_snapshots(:,:,i) = uv{i}{1}(xx, yy);
-        v_snapshots(:,:,i) = uv{i}{2}(xx, yy);
+    % Extract values by evaluating chebfun2 objects on the grid
+    for ik = 1:num_snapshots
+        u_data(:,:,ik) = real(uv{1, ik}(XX, YY));
+        v_data(:,:,ik) = real(uv{2, ik}(XX, YY));
+
+        if mod(ik, 10) == 0 || ik == num_snapshots
+            fprintf('  Processed snapshot %d/%d\n', ik, num_snapshots);
+        end
     end
 
-    % Save as HDF5 (readable by numpy with h5py)
+    % Save to HDF5 file
     h5file = fullfile(subfolder, 'data.h5');
+    fprintf('Writing to HDF5 file: %s\n', h5file);
+
+    % Delete existing HDF5 file if it exists
     if exist(h5file, 'file')
         delete(h5file);
     end
-    h5create(h5file, '/u', size(u_snapshots));
-    h5create(h5file, '/v', size(v_snapshots));
-    h5create(h5file, '/x', size(xx));
-    h5create(h5file, '/y', size(yy));
-    h5create(h5file, '/time', [num_snapshots, 1]);
-    h5write(h5file, '/u', u_snapshots);
-    h5write(h5file, '/v', v_snapshots);
-    h5write(h5file, '/x', xx);
-    h5write(h5file, '/y', yy);
-    h5write(h5file, '/time', tspan(:));
 
-    % Save metadata
+    % Write u and v datasets
+    h5create(h5file, '/u', size(u_data));
+    h5write(h5file, '/u', u_data);
+    h5create(h5file, '/v', size(v_data));
+    h5write(h5file, '/v', v_data);
+
+    % Prepare metadata
     metadata.pattern = pattern;
     metadata.F = F;
     metadata.k = k;
@@ -159,7 +179,25 @@ try
         end
     end
 
-    % Save metadata as JSON
+    % Write metadata as HDF5 attributes
+    h5writeatt(h5file, '/', 'pattern', pattern);
+    h5writeatt(h5file, '/', 'F', F);
+    h5writeatt(h5file, '/', 'k', k);
+    h5writeatt(h5file, '/', 'delta_u', delta_u);
+    h5writeatt(h5file, '/', 'delta_v', delta_v);
+    h5writeatt(h5file, '/', 'initialization', init_type);
+    h5writeatt(h5file, '/', 'random_seed', random_seed);
+    h5writeatt(h5file, '/', 'num_snapshots', num_snapshots);
+    h5writeatt(h5file, '/', 'grid_size_x', n);
+    h5writeatt(h5file, '/', 'grid_size_y', n);
+    h5writeatt(h5file, '/', 'domain', dom);
+    h5writeatt(h5file, '/', 'time_step', dt);
+    h5writeatt(h5file, '/', 'snapshot_interval', snap_dt);
+    h5writeatt(h5file, '/', 'final_time', tend);
+    h5writeatt(h5file, '/', 'scheme', pref.scheme);
+    h5writeatt(h5file, '/', 'dealias', pref.dealias);
+
+    % Save metadata as JSON (for compatibility)
     jsonfile = fullfile(subfolder, 'metadata.json');
     fid = fopen(jsonfile, 'w');
     fprintf(fid, '%s', jsonencode(metadata));
@@ -172,7 +210,8 @@ try
     fprintf('Elapsed time:   %.2f seconds (%.2f minutes)\n', elapsed, elapsed/60);
     fprintf('Saved to:       %s\n', subfolder);
     fprintf('Files created:\n');
-    fprintf('  - data.h5 (HDF5/numpy format)\n');
+    fprintf('  - data.h5 (HDF5 format with field values)\n');
+    fprintf('    Datasets: /u [%dx%dx%d], /v [%dx%dx%d]\n', n, n, num_snapshots, n, n, num_snapshots);
     fprintf('  - metadata.json (JSON format)\n');
     fprintf('========================================\n');
 catch ME
