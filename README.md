@@ -22,24 +22,8 @@ Code for generating pattern formation datasets for the Gray-Scott equations usin
 - MATLAB: https://www.mathworks.com/products/matlab.html
 - Chebfun: https://www.chebfun.org
 
-**For parameter sweeps (optional):**
-- Python 3.12+ with numpy and pandas
-
-### Python Environment Setup
-
-If you plan to run parameter sweeps using SLURM array jobs:
-
-```bash
-# Load Python module
-module load Python/3.12.3
-
-# Create virtual environment
-python3 -m venv ~/venvs/gray-scott-env
-source ~/venvs/gray-scott-env/bin/activate
-
-# Install dependencies
-pip install numpy pandas
-```
+**For parameter sweeps and analysis:**
+- Python 3.12+ with numpy, h5py and pandas
 
 ---
 

@@ -27,7 +27,7 @@ def check_csv_format(param_file):
 
 def check_required_columns(df):
     """Check if all required columns are present."""
-    required_cols = ['job_id', 'pattern', 'delta_u', 'delta_v', 'F', 'k',
+    required_cols = ['job_id', 'delta_u', 'delta_v', 'F', 'k',
                      'random_seed', 'init_type', 'dt', 'snap_dt', 'tend']
 
     missing = [col for col in required_cols if col not in df.columns]
@@ -55,13 +55,6 @@ def check_missing_values(df):
 def check_parameter_ranges(df):
     """Validate parameter value ranges."""
     errors = []
-
-    # Check valid pattern names
-    valid_patterns = ['gliders', 'bubbles', 'maze', 'worms', 'spirals', 'spots']
-    invalid_patterns = df[~df['pattern'].isin(valid_patterns)]['pattern'].unique()
-    if len(invalid_patterns) > 0:
-        errors.append(f"Invalid pattern names: {list(invalid_patterns)}")
-        errors.append(f"  Valid patterns: {valid_patterns}")
 
     # Check valid init types
     valid_init_types = ['gaussians', 'fourier']
@@ -168,14 +161,14 @@ def print_parameter_summary(df):
     print("\nParameter Summary:")
     print("=" * 70)
 
-    for col in ['pattern', 'delta_u', 'delta_v', 'F', 'k', 'random_seed',
+    for col in ['delta_u', 'delta_v', 'F', 'k', 'random_seed',
                 'init_type', 'dt', 'snap_dt', 'tend']:
         if col not in df.columns:
             continue
 
         unique_vals = df[col].unique()
 
-        if col in ['pattern', 'init_type']:
+        if col in ['init_type']:
             # Categorical parameters
             value_counts = df[col].value_counts()
             print(f"\n{col}:")

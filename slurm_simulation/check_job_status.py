@@ -95,8 +95,14 @@ def analyze_status_files(status_dir):
     return status_counts, job_info
 
 
-def check_output_files(param_file, snapshot_dir):
-    """Check which jobs have output files."""
+def check_output_files(param_file, snapshot_dir, array_job_id=None):
+    """Check which jobs have output files.
+
+    Args:
+        param_file: Path to parameter CSV file
+        snapshot_dir: Path to snapshots directory
+        array_job_id: SLURM array job ID (if None, will try to infer from status files)
+    """
     snapshot_dir = Path(snapshot_dir)
 
     if not param_file or not snapshot_dir.exists():
@@ -108,12 +114,25 @@ def check_output_files(param_file, snapshot_dir):
     for _, row in df.iterrows():
         job_id = int(row['job_id'])
 
-        # Construct expected output directory name
-        # Format: gs_{pattern}_F={F}_k={k}_{init_type}_{random_seed}
+        # Check new directory structure first: snapshots/{array_job_id}/{job_id}/
+        if array_job_id:
+            new_output_dir = snapshot_dir / str(array_job_id) / str(job_id)
+            data_file = new_output_dir / "data.h5"
+
+            if new_output_dir.exists():
+                output_status[job_id] = {
+                    'has_output': True,
+                    'output_dir': new_output_dir,
+                    'has_data_file': data_file.exists()
+                }
+                continue
+
+        # Fall back to old naming scheme for backward compatibility
+        # Format: gs_F={F}_k={k}_{init_type}_{random_seed}
         F_formatted = f"{row['F']:.3f}".replace('.', '')[:3]
         k_formatted = f"{row['k']:.3f}".replace('.', '')[:3]
 
-        pattern = f"gs_{row['pattern']}_F={F_formatted}_k={k_formatted}_{row['init_type']}_{int(row['random_seed'])}"
+        pattern = f"gs_F={F_formatted}_k={k_formatted}_{row['init_type']}_{int(row['random_seed'])}"
 
         # Look for matching directories
         matching_dirs = list(snapshot_dir.glob(pattern))
@@ -213,10 +232,10 @@ def print_status_report(status_counts, job_info, total_jobs=None, detailed=False
                 for info in sorted(jobs, key=lambda x: x.get('array_task_id', 0))[:20]:
                     task_id = info.get('array_task_id', '?')
                     job_id = info.get('JOB_ID', '?')
-                    pattern = info.get('PATTERN', '?')
                     F = info.get('F', '?')
                     k = info.get('k', '?')
-                    print(f"  Task {task_id:4s} (Job {job_id:4s}): {pattern:8s} F={F:6s} k={k:6s}")
+                    init_type = info.get('INIT_TYPE', '?')
+                    print(f"  Task {task_id:4s} (Job {job_id:4s}): F={F:6s} k={k:6s} init={init_type:8s}")
 
                 if len(jobs) > 20:
                     print(f"  ... and {len(jobs) - 20} more")
@@ -282,10 +301,18 @@ def main():
 
     # Check output files if requested
     output_status = None
+    array_job_id = None
     if args.check_outputs and args.params:
         param_file = Path(args.params)
         if param_file.exists():
-            output_status = check_output_files(param_file, snapshot_dir)
+            # Try to extract array job ID from status files
+            if job_info:
+                # Get the most common array job ID from status files
+                array_job_ids = [info.get('ARRAY_JOB_ID') for info in job_info if 'ARRAY_JOB_ID' in info]
+                if array_job_ids:
+                    array_job_id = max(set(array_job_ids), key=array_job_ids.count)
+
+            output_status = check_output_files(param_file, snapshot_dir, array_job_id)
 
     # Output mode
     if args.failed_ids_only:

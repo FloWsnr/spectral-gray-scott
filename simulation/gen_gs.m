@@ -1,11 +1,10 @@
-function gen_gs(pattern, delta_u, delta_v, F, k, random_seed, init_type, dt, snap_dt, tend)
-% GEN_GS Generate a single Gray-Scott pattern simulation
+function gen_gs(delta_u, delta_v, F, k, random_seed, init_type, dt, snap_dt, tend, array_job_id, job_id)
+% GEN_GS Generate a single Gray-Scott reaction-diffusion simulation
 %
 % Syntax:
-%   gen_gs(pattern, delta_u, delta_v, F, k, random_seed, init_type, dt, snap_dt, tend)
+%   gen_gs(delta_u, delta_v, F, k, random_seed, init_type, dt, snap_dt, tend, array_job_id, job_id)
 %
 % Parameters:
-%   pattern       - Pattern type: 'gliders', 'bubbles', 'maze', 'worms', 'spirals', 'spots'
 %   delta_u       - Diffusion coefficient for u
 %   delta_v       - Diffusion coefficient for v
 %   F             - Feed rate parameter
@@ -15,8 +14,9 @@ function gen_gs(pattern, delta_u, delta_v, F, k, random_seed, init_type, dt, sna
 %   dt            - Time step size (optional, default: 1)
 %   snap_dt       - Snapshot interval (optional, default: 10)
 %   tend          - Final time (optional, default: 10000)
+%   array_job_id  - SLURM array job ID (optional, for directory naming)
+%   job_id        - Job ID from parameter file (optional, for directory naming)
 
-pattern = lower(pattern);
 init_type = lower(init_type);
 
 % Validate initialization type
@@ -25,14 +25,20 @@ if ~ismember(init_type, {'gaussians', 'fourier'})
 end
 
 % Set default values for optional time parameters
-if nargin < 8 || isempty(dt)
+if nargin < 7 || isempty(dt)
     dt = 1;
 end
-if nargin < 9 || isempty(snap_dt)
+if nargin < 8 || isempty(snap_dt)
     snap_dt = 10;
 end
-if nargin < 10 || isempty(tend)
+if nargin < 9 || isempty(tend)
     tend = 10000;
+end
+if nargin < 10 || isempty(array_job_id)
+    array_job_id = '';
+end
+if nargin < 11 || isempty(job_id)
+    job_id = '';
 end
 
 % Set random seed
@@ -85,11 +91,10 @@ end
 fprintf('========================================\n');
 fprintf('Gray-Scott Simulation Starting\n');
 fprintf('========================================\n');
-fprintf('Pattern:        %s\n', pattern);
-fprintf('Initialization: %s\n', init_type);
-fprintf('Random Seed:    %d\n', random_seed);
 fprintf('Parameters:     F=%.4f, k=%.4f\n', F, k);
 fprintf('Diffusion:      Du=%.5f, Dv=%.5f\n', delta_u, delta_v);
+fprintf('Initialization: %s\n', init_type);
+fprintf('Random Seed:    %d\n', random_seed);
 fprintf('Domain:         [%.1f, %.1f] x [%.1f, %.1f]\n', dom(1), dom(2), dom(3), dom(4));
 fprintf('Grid Size:      %d x %d\n', n, n);
 fprintf('Time Step:      dt=%.2f\n', dt);
@@ -107,8 +112,15 @@ try
     uv = spin2(S, n, dt, pref);
     elapsed = toc;
 
-    % Create subfolder with parameter names
-    subfolder = sprintf('results/snapshots/gs_%s_F=%.3d_k=%.3d_%s_%d', pattern, 1000*F, 1000*k, init_type, random_seed);
+    % Create subfolder based on array job ID and job ID if provided,
+    % otherwise fall back to old naming scheme
+    if ~isempty(array_job_id) && ~isempty(job_id)
+        subfolder = sprintf('results/snapshots/%s/%s', array_job_id, job_id);
+    else
+        % Legacy naming for backward compatibility
+        subfolder = sprintf('results/snapshots/gs_F=%.3d_k=%.3d_%s_%d', 1000*F, 1000*k, init_type, random_seed);
+    end
+
     if ~exist(subfolder, 'dir')
         mkdir(subfolder);
     end
@@ -154,8 +166,18 @@ try
     h5create(h5file, '/v', size(v_data));
     h5write(h5file, '/v', v_data);
 
+    % Write spatial grids (Chebyshev points)
+    h5create(h5file, '/x', size(x));
+    h5write(h5file, '/x', x);
+    h5create(h5file, '/y', size(y));
+    h5write(h5file, '/y', y);
+
+    % Write time array
+    time_array = 0:snap_dt:tend;
+    h5create(h5file, '/time', size(time_array));
+    h5write(h5file, '/time', time_array);
+
     % Prepare metadata
-    metadata.pattern = pattern;
     metadata.F = F;
     metadata.k = k;
     metadata.delta_u = delta_u;
@@ -180,7 +202,6 @@ try
     end
 
     % Write metadata as HDF5 attributes
-    h5writeatt(h5file, '/', 'pattern', pattern);
     h5writeatt(h5file, '/', 'F', F);
     h5writeatt(h5file, '/', 'k', k);
     h5writeatt(h5file, '/', 'delta_u', delta_u);

@@ -114,7 +114,7 @@ def generate_grid(fixed_params, sweep_params):
         data.append(row)
 
     # Define column order
-    column_order = ['job_id', 'pattern', 'delta_u', 'delta_v', 'F', 'k',
+    column_order = ['job_id', 'delta_u', 'delta_v', 'F', 'k',
                     'random_seed', 'init_type', 'dt', 'snap_dt', 'tend']
 
     df = pd.DataFrame(data)
@@ -137,17 +137,11 @@ def validate_parameters(df):
         True if valid, raises ValueError otherwise
     """
     # Check for required columns
-    required_cols = ['pattern', 'delta_u', 'delta_v', 'F', 'k', 'random_seed',
+    required_cols = ['delta_u', 'delta_v', 'F', 'k', 'random_seed',
                      'init_type', 'dt', 'snap_dt', 'tend']
     missing = [col for col in required_cols if col not in df.columns or df[col].isnull().any()]
     if missing:
         raise ValueError(f"Missing required parameters: {missing}")
-
-    # Check valid pattern names
-    valid_patterns = ['gliders', 'bubbles', 'maze', 'worms', 'spirals', 'spots']
-    invalid_patterns = df[~df['pattern'].isin(valid_patterns)]['pattern'].unique()
-    if len(invalid_patterns) > 0:
-        raise ValueError(f"Invalid pattern names: {invalid_patterns}. Valid: {valid_patterns}")
 
     # Check valid init types
     valid_init_types = ['gaussians', 'fourier']
@@ -239,8 +233,6 @@ Range format:
     )
 
     # Parameters that can vary
-    parser.add_argument('--pattern', type=str, default='gliders',
-                        help='Pattern type (default: gliders). Can be range or comma-separated list.')
     parser.add_argument('--delta-u', type=str, default='0.00002',
                         help='Diffusion coefficient for u (default: 0.00002, format: start:stop:num or val1,val2,...)')
     parser.add_argument('--delta-v', type=str, default='0.00001',
@@ -279,7 +271,6 @@ Range format:
         fixed_params = {}
 
         param_specs = {
-            'pattern': args.pattern,
             'delta_u': args.delta_u,
             'delta_v': args.delta_v,
             'F': args.F,
@@ -293,7 +284,7 @@ Range format:
 
         for param_name, param_spec in param_specs.items():
             # Special handling for string parameters
-            if param_name in ['pattern', 'init_type']:
+            if param_name in ['init_type']:
                 if ',' in param_spec:
                     sweep_params[param_name] = [x.strip() for x in param_spec.split(',')]
                 else:

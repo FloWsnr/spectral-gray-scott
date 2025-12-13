@@ -70,11 +70,11 @@ fi
 LINE_NUM=$((SLURM_ARRAY_TASK_ID + 1))
 PARAMS=$(sed -n "${LINE_NUM}p" "${PARAM_FILE}")
 
-# Parse CSV fields (job_id,pattern,delta_u,delta_v,F,k,random_seed,init_type,dt,snap_dt,tend)
-IFS=',' read -r JOB_ID PATTERN DELTA_U DELTA_V F K RANDOM_SEED INIT_TYPE DT SNAP_DT TEND <<< "${PARAMS}"
+# Parse CSV fields (job_id,delta_u,delta_v,F,k,random_seed,init_type,dt,snap_dt,tend)
+IFS=',' read -r JOB_ID DELTA_U DELTA_V F K RANDOM_SEED INIT_TYPE DT SNAP_DT TEND <<< "${PARAMS}"
 
 # Verify we read parameters correctly
-if [ -z "${PATTERN}" ] || [ -z "${F}" ] || [ -z "${K}" ]; then
+if [ -z "${F}" ] || [ -z "${K}" ]; then
     echo "ERROR: Failed to parse parameters from line ${LINE_NUM}"
     echo "Line content: ${PARAMS}"
     exit 1
@@ -146,7 +146,6 @@ STATUS_FILE="${STATUS_DIR}/job_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.stat
     echo "JOB_ID: ${JOB_ID}"
     echo "ARRAY_JOB_ID: ${SLURM_ARRAY_JOB_ID}"
     echo "ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}"
-    echo "PATTERN: ${PATTERN}"
     echo "F: ${F}"
     echo "k: ${K}"
     echo "DELTA_U: ${DELTA_U}"
@@ -165,11 +164,10 @@ STATUS_FILE="${STATUS_DIR}/job_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.stat
 # Print parameters
 echo "Running simulation with parameters:"
 echo "  Job ID:       ${JOB_ID}"
-echo "  Pattern:      ${PATTERN}"
-echo "  Delta U:      ${DELTA_U}"
-echo "  Delta V:      ${DELTA_V}"
 echo "  F:            ${F}"
 echo "  k:            ${K}"
+echo "  Delta U:      ${DELTA_U}"
+echo "  Delta V:      ${DELTA_V}"
 echo "  Random Seed:  ${RANDOM_SEED}"
 echo "  Init Type:    ${INIT_TYPE}"
 echo "  Time Step:    ${DT}"
@@ -178,7 +176,7 @@ echo "  Final Time:   ${TEND}"
 echo "========================================"
 
 # Log file (unique per job)
-LOG_FILE="${LOG_DIR}/${PATTERN}_${INIT_TYPE}_${RANDOM_SEED}_F${F}_k${K}_$(date +%Y%m%d_%H%M%S).log"
+LOG_FILE="${LOG_DIR}/${INIT_TYPE}_${RANDOM_SEED}_F${F}_k${K}_$(date +%Y%m%d_%H%M%S).log"
 
 # ============================================================================
 # RUN SIMULATION
@@ -188,8 +186,8 @@ echo "Starting simulation (log: ${LOG_FILE})"
 echo "Progress will be shown below and saved to log file..."
 echo ""
 
-# Run MATLAB simulation
-${MATLAB_CMD} -batch "addpath('${SCRIPT_DIR}/simulation'); addpath('${CHEBFUN_DIR}'); gen_gs('${PATTERN}', ${DELTA_U}, ${DELTA_V}, ${F}, ${K}, ${RANDOM_SEED}, '${INIT_TYPE}', ${DT}, ${SNAP_DT}, ${TEND})" \
+# Run MATLAB simulation (pass array job ID and job ID for directory naming)
+${MATLAB_CMD} -batch "addpath('${SCRIPT_DIR}/simulation'); addpath('${CHEBFUN_DIR}'); gen_gs(${DELTA_U}, ${DELTA_V}, ${F}, ${K}, ${RANDOM_SEED}, '${INIT_TYPE}', ${DT}, ${SNAP_DT}, ${TEND}, '${SLURM_ARRAY_JOB_ID}', '${JOB_ID}')" \
     2>&1 | tee "${LOG_FILE}"
 
 EXIT_CODE=$?
@@ -218,10 +216,11 @@ echo "Log saved to: ${LOG_FILE}"
 echo "Status saved to: ${STATUS_FILE}"
 
 # Count generated files for this simulation
-OUTPUT_PATTERN="${SNAPSHOT_DIR}/gs_${PATTERN}_F=*_k=*_${INIT_TYPE}_${RANDOM_SEED}"
-if compgen -G "${OUTPUT_PATTERN}" > /dev/null; then
-    num_files=$(find ${OUTPUT_PATTERN} -name "*.h5" 2>/dev/null | wc -l)
+OUTPUT_DIR="${SNAPSHOT_DIR}/${SLURM_ARRAY_JOB_ID}/${JOB_ID}"
+if [ -d "${OUTPUT_DIR}" ]; then
+    num_files=$(find "${OUTPUT_DIR}" -name "*.h5" 2>/dev/null | wc -l)
     echo "Snapshot files generated: ${num_files}"
+    echo "Output directory: ${OUTPUT_DIR}"
 fi
 
 echo "========================================"

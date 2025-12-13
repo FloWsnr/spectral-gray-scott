@@ -23,7 +23,11 @@ The codebase uses **MATLAB** for simulations (spectral methods via Chebfun) and 
 3. MATLAB simulation (`gen_gs.m`) → Writes HDF5 + JSON metadata
 4. Job status tracking → Monitors completion/failures for resume capability
 
-Output structure: `results/snapshots/gs_{pattern}_F={F}_k={k}_{init}_{seed}/data.h5`
+Output structure:
+- **Array jobs (new)**: `results/snapshots/{SLURM_ARRAY_JOB_ID}/{job_id}/data.h5`
+- **Legacy**: `results/snapshots/gs_F={F}_k={k}_{init}_{seed}/data.h5`
+
+The new structure organizes results by SLURM array job ID and parameter file job_id, avoiding overwrites when using the same F/k but different diffusivities or initialization parameters.
 
 ## Development Commands
 
@@ -33,10 +37,12 @@ From MATLAB:
 ```matlab
 addpath('simulation');
 addpath('chebfun');
-gen_gs('gliders', 0.00002, 0.00001, 0.014, 0.054, 1, 'gaussians', 1, 10, 10000)
+gen_gs(0.00002, 0.00001, 0.014, 0.054, 1, 'gaussians', 1, 10, 10000)
 ```
 
-Parameters: `gen_gs(pattern, delta_u, delta_v, F, k, random_seed, init_type, dt, snap_dt, tend)`
+Parameters: `gen_gs(delta_u, delta_v, F, k, random_seed, init_type, dt, snap_dt, tend, array_job_id, job_id)`
+
+The last two parameters (array_job_id, job_id) are optional. If omitted, the legacy directory naming scheme is used. When running via `run_array_simulation.sh`, these are automatically set from SLURM variables.
 
 ### Parameter Sweep Workflow
 
@@ -66,11 +72,14 @@ bash resume_failed_jobs.sh params.csv
 ### Visualization
 
 ```bash
-# View all snapshots
-python visualize_data.py results/snapshots/gs_gliders_F=014_k=054_gaussians_1/
+# View all snapshots (new directory structure)
+python visualize_data.py results/snapshots/12345/1/
 
 # View specific snapshot
-python visualize_data.py results/snapshots/gs_gliders_F=014_k=054_gaussians_1/ --snapshot 500
+python visualize_data.py results/snapshots/12345/1/ --snapshot 500
+
+# Legacy directory structure also supported
+python visualize_data.py results/snapshots/gs_F=014_k=054_gaussians_1/
 ```
 
 ## Critical Implementation Details
@@ -93,11 +102,13 @@ The `run_array_simulation.sh` script expects:
 ### HDF5 Structure
 
 Datasets in `data.h5`:
-- `/u` and `/v`: shape `[128, 128, num_snapshots]` (note: MATLAB writes in column-major, Python reads in row-major)
-- Grid: Chebyshev points via `chebpts(128, [-1, 1])` on domain [-1,1]×[-1,1]
-- Time indexing: snapshot `k` corresponds to time `t = (k-1) × snap_dt`
+- `/u` and `/v`: shape `[128, 128, num_snapshots]` - Concentration fields (note: MATLAB writes in column-major, Python reads in row-major)
+- `/x` and `/y`: shape `[128]` - Chebyshev grid points on domain [-1,1]
+- `/time`: shape `[num_snapshots]` - Time values for each snapshot
 
-Metadata stored as HDF5 attributes on root `/`: `F`, `k`, `pattern`, `delta_u`, `delta_v`, `random_seed`, `initialization`, `num_snapshots`, `grid_size_x`, `grid_size_y`, `domain`, `time_step`, `snapshot_interval`, `final_time`, `scheme`, `dealias`
+Grid: Chebyshev points via `chebpts(128, [-1, 1])` on domain [-1,1]×[-1,1]
+
+Metadata stored as HDF5 attributes on root `/`: `F`, `k`, `delta_u`, `delta_v`, `random_seed`, `initialization`, `num_snapshots`, `grid_size_x`, `grid_size_y`, `domain`, `time_step`, `snapshot_interval`, `final_time`, `scheme`, `dealias`
 
 ### Initialization Types
 
@@ -107,17 +118,17 @@ Two initialization schemes (`init_type` parameter):
 
 Both use `rng(random_seed)` for reproducibility.
 
-### Pattern Parameters
+### Common Parameter Values
 
-Common F/k values for different patterns:
-- Gliders: F=0.014, k=0.054
-- Bubbles: F=0.012, k=0.050
-- Maze: F=0.029, k=0.057
-- Worms: F=0.078, k=0.061
-- Spirals: F=0.010, k=0.041
-- Spots: F=0.014, k=0.045
+Example F/k combinations that produce interesting dynamics:
+- F=0.014, k=0.054 (gliding spots)
+- F=0.012, k=0.050 (bubbles)
+- F=0.029, k=0.057 (maze-like patterns)
+- F=0.078, k=0.061 (worm-like patterns)
+- F=0.010, k=0.041 (spiral waves)
+- F=0.014, k=0.045 (stationary spots)
 
-(These are typical values; actual pattern formation depends on initialization and full parameter set)
+Note: Pattern formation depends on F, k, diffusion coefficients (delta_u, delta_v), and initialization type.
 
 ## Environment Setup
 
