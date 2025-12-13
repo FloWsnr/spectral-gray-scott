@@ -3,8 +3,8 @@
 Visualize Gray-Scott simulation data.
 
 Example usage:
-    python visualize_data.py snapshots/gs_gliders_F=014_k=054_gaussians_1
-    python visualize_data.py snapshots/gs_gliders_F=014_k=054_gaussians_1 --snapshot 500
+    python visualize_data.py results/snapshots/gs_gliders_F=014_k=054_gaussians_1
+    python visualize_data.py results/snapshots/gs_gliders_F=014_k=054_gaussians_1 --snapshot 500
 """
 
 import h5py

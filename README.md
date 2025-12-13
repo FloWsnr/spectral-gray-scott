@@ -60,9 +60,9 @@ spectral-gray-scott/
 │   ├── check_job_status.py          # Monitor job progress
 │   └── resume_failed_jobs.sh        # Resubmit failed jobs
 ├── visualize_data.py         # Visualization script
-├── snapshots/                # Simulation output (HDF5 files)
 ├── logs/                     # MATLAB simulation logs
-├── results/                  # SLURM job tracking
+├── results/                  # SLURM job tracking and simulation output
+│   ├── snapshots/           # Simulation output (HDF5 files)
 │   ├── slurm_logs/          # SLURM output logs
 │   └── job_status/          # Job status files
 └── README.md                 # This file
@@ -125,7 +125,7 @@ The simulation saves results directly to HDF5 format, providing:
 
 ### Output Files
 
-Each simulation creates a subfolder: `snapshots/gs_{pattern}_F={F}_k={k}_{init}_{seed}/`
+Each simulation creates a subfolder: `results/snapshots/gs_{pattern}_F={F}_k={k}_{init}_{seed}/`
 
 Files created:
 - `data.h5` - HDF5 file with field values
@@ -212,7 +212,7 @@ sys.path.append('simulation')
 from load_data import load_simulation
 
 # Load simulation data
-data, metadata = load_simulation('snapshots/gs_gliders_F=014_k=054_gaussians_1/')
+data, metadata = load_simulation('results/snapshots/gs_gliders_F=014_k=054_gaussians_1/')
 
 # Access data
 u, v, x, y, times = data['u'], data['v'], data['x'], data['y'], data['t']
@@ -229,10 +229,10 @@ Use the provided Python script to visualize simulation results:
 
 ```bash
 # Visualize all snapshots
-python visualize_data.py snapshots/gs_gliders_F=014_k=054_gaussians_1/
+python visualize_data.py results/snapshots/gs_gliders_F=014_k=054_gaussians_1/
 
 # Visualize specific snapshot
-python visualize_data.py snapshots/gs_gliders_F=014_k=054_gaussians_1/ --snapshot 500
+python visualize_data.py results/snapshots/gs_gliders_F=014_k=054_gaussians_1/ --snapshot 500
 ```
 
 ---

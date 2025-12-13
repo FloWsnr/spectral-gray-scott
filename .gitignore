@@ -8,12 +8,11 @@ chebfun/
 # Log files
 logs/
 
-# Snapshot files
-snapshots/
+# Results directory (includes snapshots, job status, SLURM logs)
+results/
 
 # MATLAB temp directory
 matlab_tmp/
 
 # SLURM output files
 *.out
-results/00_slrm_logs/

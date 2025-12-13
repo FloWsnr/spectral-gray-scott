@@ -3,7 +3,7 @@
 Load Gray-Scott simulation data from HDF5 and JSON formats.
 
 Example usage:
-    python load_data.py snapshots/gs_gliders_F=014_k=054_gaussians_1
+    python load_data.py results/snapshots/gs_gliders_F=014_k=054_gaussians_1
 """
 
 import h5py
@@ -94,7 +94,7 @@ if __name__ == '__main__':
     if len(sys.argv) < 2:
         print("Usage: python load_data.py <folder_path>")
         print("\nExample:")
-        print("  python load_data.py snapshots/gs_gliders_F=014_k=054_gaussians_1")
+        print("  python load_data.py results/snapshots/gs_gliders_F=014_k=054_gaussians_1")
         sys.exit(1)
 
     folder_path = sys.argv[1]

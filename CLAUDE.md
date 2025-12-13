@@ -23,7 +23,7 @@ The codebase uses **MATLAB** for simulations (spectral methods via Chebfun) and 
 3. MATLAB simulation (`gen_gs.m`) → Writes HDF5 + JSON metadata
 4. Job status tracking → Monitors completion/failures for resume capability
 
-Output structure: `snapshots/gs_{pattern}_F={F}_k={k}_{init}_{seed}/data.h5`
+Output structure: `results/snapshots/gs_{pattern}_F={F}_k={k}_{init}_{seed}/data.h5`
 
 ## Development Commands
 
@@ -67,10 +67,10 @@ bash resume_failed_jobs.sh params.csv
 
 ```bash
 # View all snapshots
-python visualize_data.py snapshots/gs_gliders_F=014_k=054_gaussians_1/
+python visualize_data.py results/snapshots/gs_gliders_F=014_k=054_gaussians_1/
 
 # View specific snapshot
-python visualize_data.py snapshots/gs_gliders_F=014_k=054_gaussians_1/ --snapshot 500
+python visualize_data.py results/snapshots/gs_gliders_F=014_k=054_gaussians_1/ --snapshot 500
 ```
 
 ## Critical Implementation Details
@@ -87,7 +87,7 @@ Range formats in `generate_parameter_grid.py`:
 The `run_array_simulation.sh` script expects:
 - Parameter file as first argument
 - Chebfun at `${SCRIPT_DIR}/chebfun` (auto-installs if missing)
-- Creates directories: `snapshots/`, `logs/`, `results/job_status/`, `results/slurm_logs/`
+- Creates directories: `results/snapshots/`, `logs/`, `results/job_status/`, `results/slurm_logs/`
 - Sets `MATLAB_TMPDIR` to `${HPCWORK}/matlab_tmp` to avoid filling SSDs
 
 ### HDF5 Structure
@@ -168,4 +168,4 @@ Python `load_data.py` reconstructs grid via `np.polynomial.chebyshev.chebpts(128
 - Job scripts: `slurm_simulation/run_array_simulation.sh`, `slurm_simulation/run_simulation.sh`
 - Monitoring: `slurm_simulation/check_job_status.py`, `slurm_simulation/resume_failed_jobs.sh`
 - Data loading: `simulation/load_data.py`, `visualize_data.py`
-- Outputs: `snapshots/`, `logs/`, `results/job_status/`, `results/slurm_logs/`
+- Outputs: `results/snapshots/`, `logs/`, `results/job_status/`, `results/slurm_logs/`

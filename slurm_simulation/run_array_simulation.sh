@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ### Task name
-#SBATCH --account=your_account_here
+##SBATCH --account=fw641779
 
 ### Job name
 #SBATCH --job-name=gs_array
@@ -13,17 +13,17 @@
 #SBATCH --nodes=1
 
 ### How many CPU cores to use
-#SBATCH --ntasks-per-node=40
+#SBATCH --ntasks-per-node=1
 
 ### How much memory in total (MB)
-#SBATCH --mem=100G
+#SBATCH --mem=5G
 
 ### Mail notification configuration
 #SBATCH --mail-type=ALL
-#SBATCH --mail-user=your_email_here
+#SBATCH --mail-user=florian.wiesner@avt.rwth-aachen.de
 
 ### Maximum runtime per task
-#SBATCH --time=24:00:00
+#SBATCH --time=00:10:00
 
 ### Partition
 #SBATCH --partition=standard
@@ -85,8 +85,9 @@ fi
 # ============================================================================
 
 # Configuration
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SNAPSHOT_DIR="${SCRIPT_DIR}/snapshots"
+# Use SLURM_SUBMIT_DIR (directory from which sbatch was called) for reliability
+SCRIPT_DIR="${SLURM_SUBMIT_DIR}"
+SNAPSHOT_DIR="${SCRIPT_DIR}/results/snapshots"
 LOG_DIR="${SCRIPT_DIR}/logs"
 STATUS_DIR="${SCRIPT_DIR}/results/job_status"
 
@@ -188,7 +189,7 @@ echo "Progress will be shown below and saved to log file..."
 echo ""
 
 # Run MATLAB simulation
-${MATLAB_CMD} -batch "addpath('${SCRIPT_DIR}'); addpath('${CHEBFUN_DIR}'); gen_gs('${PATTERN}', ${DELTA_U}, ${DELTA_V}, ${F}, ${K}, ${RANDOM_SEED}, '${INIT_TYPE}', ${DT}, ${SNAP_DT}, ${TEND})" \
+${MATLAB_CMD} -batch "addpath('${SCRIPT_DIR}/simulation'); addpath('${CHEBFUN_DIR}'); gen_gs('${PATTERN}', ${DELTA_U}, ${DELTA_V}, ${F}, ${K}, ${RANDOM_SEED}, '${INIT_TYPE}', ${DT}, ${SNAP_DT}, ${TEND})" \
     2>&1 | tee "${LOG_FILE}"
 
 EXIT_CODE=$?

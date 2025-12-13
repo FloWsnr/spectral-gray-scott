@@ -19,6 +19,17 @@ Usage Examples:
         --F 0.01:0.1:10 --k 0.05:0.065:10 \\
         --random-seed 1,2,3,4,5 -o params.csv
 
+    # Sweep diffusion coefficients (delta_u × delta_v)
+    python generate_parameter_grid.py \\
+        --F 0.014 --k 0.054 \\
+        --delta-u 0.00001:0.00005:5 \\
+        --delta-v 0.000005:0.00002:5 -o params.csv
+
+    # Multiple initialization types (gaussians and fourier)
+    python generate_parameter_grid.py \\
+        --F 0.01:0.1:10 --k 0.05:0.065:10 \\
+        --init-type gaussians,fourier -o params.csv
+
     # Custom parameter values (comma-separated)
     python generate_parameter_grid.py \\
         --F 0.014,0.018,0.022,0.026 \\
@@ -211,13 +222,19 @@ Examples:
   # Multiple random seeds for statistics
   %(prog)s --F 0.014:0.026:5 --k 0.051:0.057:5 --random-seed 1,2,3,4,5 -o params.csv
 
+  # Sweep diffusion coefficients (delta_u × delta_v = 25 combinations)
+  %(prog)s --F 0.014 --k 0.054 --delta-u 0.00001:0.00005:5 --delta-v 0.000005:0.00002:5 -o params.csv
+
+  # Multiple initialization types (2× multiplier on other params)
+  %(prog)s --F 0.01:0.1:10 --k 0.05:0.065:10 --init-type gaussians,fourier -o params.csv
+
   # Custom values (comma-separated)
   %(prog)s --F 0.014,0.018,0.022 --k 0.051,0.054,0.057 -o params.csv
 
 Range format:
   start:stop:num       - Linear spacing (e.g., 0.01:0.1:10)
   start:stop:num:log   - Logarithmic spacing (e.g., 0.001:0.1:10:log)
-  val1,val2,val3       - Custom list of values
+  val1,val2,val3       - Custom list of values (numeric or string params)
         """
     )
 
@@ -225,9 +242,9 @@ Range format:
     parser.add_argument('--pattern', type=str, default='gliders',
                         help='Pattern type (default: gliders). Can be range or comma-separated list.')
     parser.add_argument('--delta-u', type=str, default='0.00002',
-                        help='Diffusion coefficient for u (default: 0.00002)')
+                        help='Diffusion coefficient for u (default: 0.00002, format: start:stop:num or val1,val2,...)')
     parser.add_argument('--delta-v', type=str, default='0.00001',
-                        help='Diffusion coefficient for v (default: 0.00001)')
+                        help='Diffusion coefficient for v (default: 0.00001, format: start:stop:num or val1,val2,...)')
     parser.add_argument('--F', type=str, required=True,
                         help='Feed rate parameter (required, format: start:stop:num or val1,val2,...)')
     parser.add_argument('--k', type=str, required=True,
@@ -235,7 +252,7 @@ Range format:
     parser.add_argument('--random-seed', type=str, default='1',
                         help='Random seed(s) (default: 1, format: val1,val2,... or start:stop:num)')
     parser.add_argument('--init-type', type=str, default='gaussians',
-                        help='Initialization type: gaussians or fourier (default: gaussians)')
+                        help='Initialization type: gaussians or fourier (default: gaussians, format: gaussians,fourier for both)')
     parser.add_argument('--dt', type=str, default='1',
                         help='Time step size (default: 1)')
     parser.add_argument('--snap-dt', type=str, default='10',

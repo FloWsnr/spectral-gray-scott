@@ -108,7 +108,7 @@ try
     elapsed = toc;
 
     % Create subfolder with parameter names
-    subfolder = sprintf('snapshots/gs_%s_F=%.3d_k=%.3d_%s_%d', pattern, 1000*F, 1000*k, init_type, random_seed);
+    subfolder = sprintf('results/snapshots/gs_%s_F=%.3d_k=%.3d_%s_%d', pattern, 1000*F, 1000*k, init_type, random_seed);
     if ~exist(subfolder, 'dir')
         mkdir(subfolder);
     end

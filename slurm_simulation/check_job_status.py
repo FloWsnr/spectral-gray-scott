@@ -249,8 +249,8 @@ def main():
     parser.add_argument('--params', type=str,
                         help='Parameter CSV file (for cross-reference and total job count)')
     parser.add_argument('--snapshot-dir', type=str,
-                        default='snapshots',
-                        help='Directory containing simulation outputs (default: snapshots)')
+                        default='results/snapshots',
+                        help='Directory containing simulation outputs (default: results/snapshots)')
     parser.add_argument('--detailed', action='store_true',
                         help='Show detailed job information')
     parser.add_argument('--check-outputs', action='store_true',
