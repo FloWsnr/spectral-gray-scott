@@ -5,6 +5,7 @@ Code for generating pattern formation datasets for the Gray-Scott equations usin
 ## Table of Contents
 
 - [Installation](#installation)
+- [Directory Structure](#directory-structure)
 - [Basic Usage](#basic-usage)
 - [Output Format (HDF5)](#output-format-hdf5)
 - [Reading Data](#reading-data)
@@ -24,15 +25,63 @@ Code for generating pattern formation datasets for the Gray-Scott equations usin
 **For parameter sweeps (optional):**
 - Python 3.12+ with numpy and pandas
 
+### Python Environment Setup
+
+If you plan to run parameter sweeps using SLURM array jobs:
+
+```bash
+# Load Python module
+module load Python/3.12.3
+
+# Create virtual environment
+python3 -m venv ~/venvs/gray-scott-env
+source ~/venvs/gray-scott-env/bin/activate
+
+# Install dependencies
+pip install numpy pandas
+```
+
+---
+
+## Directory Structure
+
+```
+spectral-gray-scott/
+├── simulation/               # Core simulation code
+│   ├── gen_gs.m             # Main Gray-Scott simulation function
+│   ├── init_fourier.m       # Fourier initialization
+│   ├── random_gaussians.m   # Gaussian initialization
+│   └── load_data.py         # Python data loading utility
+├── slurm_simulation/         # SLURM array job system
+│   ├── generate_parameter_grid.py   # Generate parameter combinations
+│   ├── validate_params.py           # Validate parameter files
+│   ├── run_simulation.sh            # Single job SLURM script
+│   ├── run_array_simulation.sh      # Array job SLURM script
+│   ├── check_job_status.py          # Monitor job progress
+│   └── resume_failed_jobs.sh        # Resubmit failed jobs
+├── visualize_data.py         # Visualization script
+├── snapshots/                # Simulation output (HDF5 files)
+├── logs/                     # MATLAB simulation logs
+├── results/                  # SLURM job tracking
+│   ├── slurm_logs/          # SLURM output logs
+│   └── job_status/          # Job status files
+└── README.md                 # This file
+```
+
 ---
 
 ## Basic Usage
 
 ### Running a Single Simulation
 
-The `gen_gs.m` function runs a Gray-Scott simulation with specified parameters:
+The `simulation/gen_gs.m` function runs a Gray-Scott simulation with specified parameters:
 
 ```matlab
+% From MATLAB, add the simulation directory to your path
+addpath('simulation');
+addpath('chebfun');  % Ensure Chebfun is in your path
+
+% Run simulation
 gen_gs(pattern, delta_u, delta_v, F, k, random_seed, init_type, dt, snap_dt, tend)
 ```
 
@@ -58,7 +107,8 @@ gen_gs('gliders', 0.00002, 0.00001, 0.014, 0.054, 1, 'gaussians', 1, 10, 10000)
 For running on HPC clusters, use the provided SLURM script:
 
 ```bash
-# Edit run_simulation.sh to set your parameters, then:
+# Edit slurm_simulation/run_simulation.sh to set your parameters, then:
+cd slurm_simulation
 sbatch run_simulation.sh
 ```
 
@@ -157,6 +207,8 @@ with h5py.File('data.h5', 'r') as f:
 Using the provided utility:
 
 ```python
+import sys
+sys.path.append('simulation')
 from load_data import load_simulation
 
 # Load simulation data
@@ -169,8 +221,6 @@ u, v, x, y, times = data['u'], data['v'], data['x'], data['y'], data['t']
 F = metadata['F']
 k = metadata['k']
 ```
-
-See `read_h5_example.py` for a complete example.
 
 
 ### Visualization
@@ -198,6 +248,8 @@ For running large parameter sweeps (hundreds to thousands of simulations), use t
 Create a CSV file with all parameter combinations:
 
 ```bash
+cd slurm_simulation
+
 python generate_parameter_grid.py \
     --F 0.010:0.100:20 \
     --k 0.050:0.065:20 \
@@ -239,7 +291,7 @@ bash resume_failed_jobs.sh params_Fk_sweep.csv
 
 ### Parameter Grid Generation Details
 
-**Example sweeps:**
+**Example sweeps** (run from `slurm_simulation/` directory):
 
 F×k grid with multiple random seeds:
 ```bash
@@ -268,7 +320,12 @@ python generate_parameter_grid.py \
     --output params.csv
 ```
 
-**For full documentation**, see `README_ARRAY_JOBS.md`
+**For help with any script:**
+```bash
+python generate_parameter_grid.py --help
+python validate_params.py --help
+python check_job_status.py --help
+```
 
 ---
 
@@ -284,21 +341,30 @@ For production runs with many snapshots, HDF5 provides significant storage savin
 
 ### Converting Existing .mat Files
 
-If you have existing `.mat` files, use `save_gs_to_h5.m`:
-
-```matlab
-save_gs_to_h5('gliders', 'gaussians', 1)
-```
-
-This creates a `data.h5` file alongside the existing `data.mat`.
+If you have existing `.mat` files, you can convert them to HDF5 format (conversion script would be in `simulation/` directory if available).
 
 ---
 
-## Additional Documentation
+## Key Scripts Reference
 
-- **`SETUP.md`** - Detailed setup instructions for Python environment
-- **`README_ARRAY_JOBS.md`** - Extended documentation for SLURM array jobs
-- **`requirements.txt`** - Python dependencies
+### Core Simulation (`simulation/`)
+- **`gen_gs.m`** - Main Gray-Scott simulation function
+- **`init_fourier.m`** - Fourier-based initialization
+- **`random_gaussians.m`** - Gaussian-based initialization
+- **`load_data.py`** - Python utility to load simulation results
+
+### SLURM Array Jobs (`slurm_simulation/`)
+- **`generate_parameter_grid.py`** - Create parameter sweep configurations
+- **`validate_params.py`** - Validate parameter files before submission
+- **`run_simulation.sh`** - SLURM script for single simulations
+- **`run_array_simulation.sh`** - SLURM script for array jobs
+- **`check_job_status.py`** - Monitor job progress and failures
+- **`resume_failed_jobs.sh`** - Resubmit failed jobs
+
+### Visualization
+- **`visualize_data.py`** - Visualize simulation results
+
+---
 
 ## Support
 
@@ -306,3 +372,9 @@ For issues specific to:
 - **Cluster/SLURM:** Contact your cluster support team
 - **MATLAB/Chebfun:** Check respective documentation
 - **Python scripts:** Run with `--help` flag for usage information
+  ```bash
+  cd slurm_simulation
+  python generate_parameter_grid.py --help
+  python validate_params.py --help
+  python check_job_status.py --help
+  ```
