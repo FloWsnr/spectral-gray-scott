@@ -1,13 +1,13 @@
 #!/bin/bash
 
 ### Task name
-#SBATCH --account=your_account_here
+##SBATCH --account=your_account_here
 
 ### Job name
-#SBATCH --job-name=name_of_your_job
+#SBATCH --job-name=gray_scott
 
 ### Output file
-#SBATCH --output=results/00_slrm_logs/name_of_your_job_%j.out
+#SBATCH --output=results/slurm_logs/gray_scott_%j.out
 
 ### Number of nodes
 #SBATCH --nodes=1
@@ -27,9 +27,6 @@
 
 ### Partition
 #SBATCH --partition=standard
-
-### create time series, i.e. 100 jobs one after another. Each runs for 24 hours
-##SBATCH --array=1-10%1
 
 
 set -e  # Exit on error
@@ -86,58 +83,25 @@ else
 fi
 
 # Single simulation parameters
-PATTERN="gliders"
+# Set F and k to desired values (examples: gliders F=0.014 k=0.054, bubbles F=0.012 k=0.050)
 DELTA_U=0.00002
 DELTA_V=0.00001
-F=0.014
-K=0.054
+F=0.037
+K=0.06
 RANDOM_SEED=1
 INIT_TYPE="gaussians"
 
 # Time step parameters
 DT=1
 SNAP_DT=10
-TEND=50
-
-# Get F and k values for the pattern (from the original pattern definitions)
-case "${PATTERN}" in
-    "gliders")
-        F=0.014
-        K=0.054
-        ;;
-    "bubbles")
-        F=0.098
-        K=0.057
-        ;;
-    "maze")
-        F=0.029
-        K=0.057
-        ;;
-    "worms")
-        F=0.058
-        K=0.065
-        ;;
-    "spirals")
-        F=0.018
-        K=0.051
-        ;;
-    "spots")
-        F=0.03
-        K=0.062
-        ;;
-    *)
-        echo "ERROR: Unknown pattern: ${PATTERN}"
-        exit 1
-        ;;
-esac
+TEND=10000
 
 # Print parameters
 echo "Running single simulation with parameters:"
-echo "  Pattern:      ${PATTERN}"
-echo "  Delta U:      ${DELTA_U}"
-echo "  Delta V:      ${DELTA_V}"
 echo "  F:            ${F}"
 echo "  k:            ${K}"
+echo "  Delta U:      ${DELTA_U}"
+echo "  Delta V:      ${DELTA_V}"
 echo "  Random Seed:  ${RANDOM_SEED}"
 echo "  Init Type:    ${INIT_TYPE}"
 echo "  Time Step:    ${DT}"
@@ -146,13 +110,13 @@ echo "  Final Time:   ${TEND}"
 echo "========================================"
 
 # Log file
-LOG_FILE="${LOG_DIR}/${PATTERN}_${INIT_TYPE}_${RANDOM_SEED}_$(date +%Y%m%d_%H%M%S).log"
+LOG_FILE="${LOG_DIR}/F${F}_k${K}_${INIT_TYPE}_${RANDOM_SEED}_$(date +%Y%m%d_%H%M%S).log"
 
 # Run MATLAB simulation
 echo "Starting simulation (log: ${LOG_FILE})"
 echo "Progress will be shown below and saved to log file..."
 echo ""
-${MATLAB_CMD} -batch "addpath('${SCRIPT_DIR}/simulation'); addpath('${CHEBFUN_DIR}'); gen_gs('${PATTERN}', ${DELTA_U}, ${DELTA_V}, ${F}, ${K}, ${RANDOM_SEED}, '${INIT_TYPE}', ${DT}, ${SNAP_DT}, ${TEND})" \
+${MATLAB_CMD} -batch "addpath('${SCRIPT_DIR}/simulation'); addpath('${CHEBFUN_DIR}'); gen_gs(${DELTA_U}, ${DELTA_V}, ${F}, ${K}, ${RANDOM_SEED}, '${INIT_TYPE}', ${DT}, ${SNAP_DT}, ${TEND})" \
     2>&1 | tee "${LOG_FILE}"
 
 EXIT_CODE=$?
@@ -172,7 +136,7 @@ echo "Log saved to: ${LOG_FILE}"
 
 # Count generated files
 if [ -d "${SNAPSHOT_DIR}" ]; then
-    num_files=$(find "${SNAPSHOT_DIR}" -name "*.mat" | wc -l)
+    num_files=$(find "${SNAPSHOT_DIR}" -name "*.h5" | wc -l)
     echo "Total snapshot files: ${num_files}"
 fi
 
