@@ -37,6 +37,12 @@ set -e  # Exit on error
 # Load MATLAB module
 module load MATLAB/2025a
 
+# activate conda environment
+export CONDA_ROOT=$HOME/miniforge3
+source $CONDA_ROOT/etc/profile.d/conda.sh
+export PATH="$CONDA_ROOT/bin:$PATH"
+conda activate base
+
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SNAPSHOT_DIR="${SCRIPT_DIR}/snapshots"

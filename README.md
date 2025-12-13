@@ -1,38 +1,77 @@
 # spectral-gray-scott
-Code for generating a pattern formation dataset for the Gray-Scott equations
+
+Code for generating pattern formation datasets for the Gray-Scott equations using spectral methods.
+
+## Table of Contents
+
+- [Installation](#installation)
+- [Basic Usage](#basic-usage)
+- [Output Format (HDF5)](#output-format-hdf5)
+- [Reading Data](#reading-data)
+- [SLURM Array Jobs](#slurm-array-jobs-for-parameter-sweeps)
+- [File Size and Performance](#file-size-and-performance)
+
+---
 
 ## Installation
 
-Make sure to install matlab and chebfun first.
+### Prerequisites
 
-- Matlab: https://www.mathworks.com/products/matlab.html
+**Required:**
+- MATLAB: https://www.mathworks.com/products/matlab.html
 - Chebfun: https://www.chebfun.org
 
+**For parameter sweeps (optional):**
+- Python 3.12+ with numpy and pandas
 
+---
 
-# Gray-Scott Simulation - HDF5 Output
+## Basic Usage
 
-## Overview
+### Running a Single Simulation
 
-The `gen_gs.m` script has been updated to save simulation results directly to HDF5 format instead of MATLAB `.mat` files. This provides:
-
-- **Smaller file sizes** (~85% reduction compared to .mat)
-- **Language-agnostic format** (readable from Python, Julia, C++, etc.)
-- **Embedded metadata** as HDF5 attributes
-- **Efficient storage** of large datasets
-
-## Usage
-
-### Running a Simulation
+The `gen_gs.m` function runs a Gray-Scott simulation with specified parameters:
 
 ```matlab
 gen_gs(pattern, delta_u, delta_v, F, k, random_seed, init_type, dt, snap_dt, tend)
 ```
 
+**Parameters:**
+- `pattern` - Pattern type: 'gliders', 'bubbles', 'maze', 'worms', 'spirals', 'spots'
+- `delta_u` - Diffusion coefficient for u (typically 0.00002)
+- `delta_v` - Diffusion coefficient for v (typically 0.00001)
+- `F` - Feed rate parameter
+- `k` - Kill rate parameter
+- `random_seed` - Random seed for reproducibility
+- `init_type` - Initialization: 'gaussians' or 'fourier'
+- `dt` - Time step size (optional, default: 1)
+- `snap_dt` - Snapshot interval (optional, default: 10)
+- `tend` - Final simulation time (optional, default: 10000)
+
 **Example:**
 ```matlab
 gen_gs('gliders', 0.00002, 0.00001, 0.014, 0.054, 1, 'gaussians', 1, 10, 10000)
 ```
+
+### Using the SLURM Script
+
+For running on HPC clusters, use the provided SLURM script:
+
+```bash
+# Edit run_simulation.sh to set your parameters, then:
+sbatch run_simulation.sh
+```
+
+---
+
+## Output Format (HDF5)
+
+The simulation saves results directly to HDF5 format, providing:
+
+- **Smaller file sizes** (~85% reduction compared to .mat files)
+- **Language-agnostic format** (readable from Python, Julia, C++, etc.)
+- **Embedded metadata** as HDF5 attributes
+- **Efficient storage** of large datasets
 
 ### Output Files
 
@@ -42,32 +81,45 @@ Files created:
 - `data.h5` - HDF5 file with field values
 - `metadata.json` - JSON metadata (for compatibility)
 
-## HDF5 File Structure
+### HDF5 File Structure
 
-### Datasets
-
+**Datasets:**
 - `/u` - U component values, shape: `[128, 128, num_snapshots]`
 - `/v` - V component values, shape: `[128, 128, num_snapshots]`
 
-### Attributes (Metadata)
+**Attributes (Metadata):**
 
 Stored as HDF5 attributes on the root group `/`:
 
 - `pattern` - Pattern type (gliders, bubbles, etc.)
 - `F` - Feed rate parameter
 - `k` - Kill rate parameter
-- `delta_u` - Diffusion coefficient for u
-- `delta_v` - Diffusion coefficient for v
+- `delta_u`, `delta_v` - Diffusion coefficients
 - `initialization` - Init type (gaussians or fourier)
 - `random_seed` - Random seed used
 - `num_snapshots` - Number of time snapshots
-- `grid_size_x`, `grid_size_y` - Grid dimensions
+- `grid_size_x`, `grid_size_y` - Grid dimensions (128×128)
 - `domain` - Spatial domain [xmin, xmax, ymin, ymax]
-- `time_step` - Time step dt
-- `snapshot_interval` - Snapshot interval
-- `final_time` - Final simulation time
-- `scheme` - Time integration scheme
+- `time_step`, `snapshot_interval`, `final_time` - Time parameters
+- `scheme` - Time integration scheme (etdrk4)
 - `dealias` - Dealiasing setting
+
+### Grid Points
+
+The data is evaluated on a Chebyshev grid:
+- Grid size: 128 × 128
+- Domain: [-1, 1] × [-1, 1]
+- Grid points generated via `chebpts(n, [xmin, xmax])`
+
+### Time Snapshots
+
+The third dimension of the datasets corresponds to time snapshots:
+- Index 1: t = 0
+- Index 2: t = snap_dt
+- Index 3: t = 2×snap_dt
+- Index k: t = (k-1)×snap_dt
+
+---
 
 ## Reading Data
 
@@ -85,6 +137,8 @@ k = h5readatt('data.h5', '/', 'k');
 
 ### Python
 
+Using h5py directly:
+
 ```python
 import h5py
 import numpy as np
@@ -100,52 +154,155 @@ with h5py.File('data.h5', 'r') as f:
     pattern = f.attrs['pattern']
 ```
 
-See `read_h5_example.py` for a complete example.
+Using the provided utility:
 
-### Julia
+```python
+from load_data import load_simulation
 
-```julia
-using HDF5
+# Load simulation data
+data, metadata = load_simulation('snapshots/gs_gliders_F=014_k=054_gaussians_1/')
 
-h5open("data.h5", "r") do file
-    u = read(file, "/u")
-    v = read(file, "/v")
+# Access data
+u, v, x, y, times = data['u'], data['v'], data['x'], data['y'], data['t']
 
-    F = read_attribute(file, "F")
-    k = read_attribute(file, "k")
-end
+# Access metadata
+F = metadata['F']
+k = metadata['k']
 ```
 
-## File Size Comparison
+See `read_h5_example.py` for a complete example.
 
-Example from test run (3 snapshots):
+
+### Visualization
+
+Use the provided Python script to visualize simulation results:
+
+```bash
+# Visualize all snapshots
+python visualize_data.py snapshots/gs_gliders_F=014_k=054_gaussians_1/
+
+# Visualize specific snapshot
+python visualize_data.py snapshots/gs_gliders_F=014_k=054_gaussians_1/ --snapshot 500
+```
+
+---
+
+## SLURM Array Jobs for Parameter Sweeps
+
+For running large parameter sweeps (hundreds to thousands of simulations), use the SLURM array job system.
+
+### Quick Start
+
+**1. Generate Parameter Grid**
+
+Create a CSV file with all parameter combinations:
+
+```bash
+python generate_parameter_grid.py \
+    --F 0.010:0.100:20 \
+    --k 0.050:0.065:20 \
+    --random-seed 1,2,3 \
+    --output params_Fk_sweep.csv
+```
+
+This creates 20×20×3 = 1200 parameter combinations.
+
+**2. Validate Parameters**
+
+```bash
+python validate_params.py params_Fk_sweep.csv
+```
+
+**3. Submit Array Job**
+
+```bash
+sbatch --array=1-1200%50 run_array_simulation.sh params_Fk_sweep.csv
+```
+
+The `%50` limits to 50 concurrent jobs.
+
+**4. Monitor Progress**
+
+```bash
+# Check SLURM queue
+squeue -u $USER
+
+# Check completion status
+python check_job_status.py --params params_Fk_sweep.csv
+```
+
+**5. Handle Failed Jobs**
+
+```bash
+bash resume_failed_jobs.sh params_Fk_sweep.csv
+```
+
+### Parameter Grid Generation Details
+
+**Example sweeps:**
+
+F×k grid with multiple random seeds:
+```bash
+python generate_parameter_grid.py \
+    --F 0.010:0.100:20 \
+    --k 0.050:0.065:20 \
+    --random-seed 1,2,3,4,5 \
+    --output params.csv
+```
+
+Different patterns:
+```bash
+python generate_parameter_grid.py \
+    --pattern gliders,bubbles,maze \
+    --F 0.01:0.1:10 \
+    --k 0.05:0.065:10 \
+    --output params.csv
+```
+
+Logarithmic spacing:
+```bash
+python generate_parameter_grid.py \
+    --delta-u 0.00001:0.0001:10:log \
+    --F 0.014 \
+    --k 0.054 \
+    --output params.csv
+```
+
+**For full documentation**, see `README_ARRAY_JOBS.md`
+
+---
+
+## File Size and Performance
+
+### File Size Comparison
+
+Example (3 snapshots):
 - `.mat` format: ~18 MB (chebfun objects)
 - `.h5` format: ~0.8 MB (raw values)
 
-For production runs with many snapshots, the HDF5 format provides significant storage savings.
+For production runs with many snapshots, HDF5 provides significant storage savings.
 
-## Converting Existing .mat Files
+### Converting Existing .mat Files
 
-If you have existing `.mat` files from previous runs, use `save_gs_to_h5.m` to convert them:
+If you have existing `.mat` files, use `save_gs_to_h5.m`:
 
 ```matlab
 save_gs_to_h5('gliders', 'gaussians', 1)
 ```
 
-This will create a `data.h5` file alongside the existing `data.mat` file.
+This creates a `data.h5` file alongside the existing `data.mat`.
 
-## Grid Points
+---
 
-The data is evaluated on a Chebyshev grid:
-- Grid size: 128 x 128
-- Domain: [-1, 1] x [-1, 1]
-- Grid points generated via `chebpts(n, [xmin, xmax])`
+## Additional Documentation
 
-## Time Snapshots
+- **`SETUP.md`** - Detailed setup instructions for Python environment
+- **`README_ARRAY_JOBS.md`** - Extended documentation for SLURM array jobs
+- **`requirements.txt`** - Python dependencies
 
-The third dimension of the datasets corresponds to time snapshots:
-- Index 1: t = 0
-- Index 2: t = snap_dt
-- Index 3: t = 2*snap_dt
-- ...
-- Index k: t = (k-1)*snap_dt
+## Support
+
+For issues specific to:
+- **Cluster/SLURM:** Contact your cluster support team
+- **MATLAB/Chebfun:** Check respective documentation
+- **Python scripts:** Run with `--help` flag for usage information
