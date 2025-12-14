@@ -133,8 +133,8 @@ try
     fprintf('  Number of snapshots: %d\n', num_snapshots);
 
     % Set up grid for evaluation (Chebyshev points)
-    x = chebpts(n, dom(1:2));
-    y = chebpts(n, dom(3:4));
+    x = linspace(dom(1), dom(2), n);
+    y = linspace(dom(3), dom(4), n);
     [XX, YY] = meshgrid(x, y);
 
     % Preallocate arrays
