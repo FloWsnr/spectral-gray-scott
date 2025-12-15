@@ -45,11 +45,31 @@ def load_simulation(folder_path):
 
     data = {}
     with h5py.File(h5_file, 'r') as f:
-        data['u'] = np.array(f['u'])  # Shape: (n, n, num_snapshots)
-        data['v'] = np.array(f['v'])  # Shape: (n, n, num_snapshots)
-        data['x'] = np.array(f['x'])  # Shape: (n, n)
-        data['y'] = np.array(f['y'])  # Shape: (n, n)
-        data['time'] = np.array(f['time'])  # Shape: (num_snapshots,)
+        u_data = np.array(f['u'])
+        v_data = np.array(f['v'])
+
+        # Detect format based on shape
+        if u_data.ndim == 3:
+            # Old format: [x, y, time]
+            print("Detected legacy format: [x, y, time]")
+            data['u'] = u_data
+            data['v'] = v_data
+        elif u_data.ndim == 4:
+            # New format: [n_trajectories, n_time, x, y]
+            print(f"Detected new format: [n_trajectories, n_time, x, y]")
+            print(f"  Shape: {u_data.shape}")
+            data['u'] = u_data
+            data['v'] = v_data
+        else:
+            raise ValueError(f"Unexpected data shape: {u_data.shape}")
+
+        data['x'] = np.array(f['x'])
+        data['y'] = np.array(f['y'])
+        data['time'] = np.array(f['time'])
+
+        # Load random_seeds if available (new format)
+        if '/random_seeds' in f:
+            data['random_seeds'] = np.array(f['random_seeds'])
 
     # Load JSON metadata
     json_file = folder / 'metadata.json'
@@ -73,7 +93,20 @@ def print_info(data, metadata):
     print(f"  Delta U:        {metadata['delta_u']}")
     print(f"  Delta V:        {metadata['delta_v']}")
     print(f"  Initialization: {metadata['initialization']}")
-    print(f"  Random Seed:    {metadata['random_seed']}")
+
+    # Handle both old and new metadata formats
+    if 'random_seeds' in metadata:
+        seeds = metadata['random_seeds']
+        if isinstance(seeds, list):
+            print(f"  Random Seeds:   {len(seeds)} seeds (min={min(seeds)}, max={max(seeds)})")
+        else:
+            print(f"  Random Seed:    {seeds}")
+    elif 'random_seed' in metadata:
+        print(f"  Random Seed:    {metadata['random_seed']}")
+
+    if 'n_trajectories' in metadata:
+        print(f"  Trajectories:   {metadata['n_trajectories']}")
+
     print(f"  Grid Size:      {metadata['grid_size']} x {metadata['grid_size']}")
     print(f"  Num Snapshots:  {metadata['num_snapshots']}")
     print(f"  Final Time:     {metadata['final_time']}")
@@ -86,10 +119,23 @@ def print_info(data, metadata):
     print(f"  y shape:        {data['y'].shape}")
     print(f"  time shape:     {data['time'].shape}")
 
+    if 'random_seeds' in data:
+        print(f"  random_seeds:   {data['random_seeds'].shape} ({len(data['random_seeds'])} seeds)")
+
     print("\nData Ranges:")
     print(f"  u:   [{data['u'].min():.4f}, {data['u'].max():.4f}]")
     print(f"  v:   [{data['v'].min():.4f}, {data['v'].max():.4f}]")
     print(f"  time: [{data['time'].min():.1f}, {data['time'].max():.1f}]")
+
+    # Format-specific indexing instructions
+    if data['u'].ndim == 4:
+        print("\nIndexing (new format):")
+        print("  data['u'][trajectory_idx, time_idx, x, y]")
+        print(f"  Example: u[0, 500, :, :] = trajectory 0 at time t={data['time'][500] if len(data['time']) > 500 else 'N/A'}")
+    else:
+        print("\nIndexing (legacy format):")
+        print("  data['u'][x, y, time_idx]")
+
     print("=" * 60)
 
 
@@ -107,12 +153,24 @@ if __name__ == '__main__':
         print_info(data, metadata)
 
         # Example: Access specific snapshot
-        snapshot_idx = 0
-        u_snapshot = data['u'][:, :, snapshot_idx]
-        v_snapshot = data['v'][:, :, snapshot_idx]
-        print(f"\nExample: Snapshot {snapshot_idx} at time t={data['time'][snapshot_idx]}")
-        print(f"  u_snapshot shape: {u_snapshot.shape}")
-        print(f"  v_snapshot shape: {v_snapshot.shape}")
+        if data['u'].ndim == 4:
+            # New format
+            trajectory_idx = 0
+            snapshot_idx = 0
+            u_snapshot = data['u'][trajectory_idx, snapshot_idx, :, :]
+            v_snapshot = data['v'][trajectory_idx, snapshot_idx, :, :]
+            print(f"\nExample: Trajectory {trajectory_idx}, Snapshot {snapshot_idx}")
+            print(f"  Time: t={data['time'][snapshot_idx]}")
+            print(f"  u_snapshot shape: {u_snapshot.shape}")
+            print(f"  v_snapshot shape: {v_snapshot.shape}")
+        else:
+            # Legacy format
+            snapshot_idx = 0
+            u_snapshot = data['u'][:, :, snapshot_idx]
+            v_snapshot = data['v'][:, :, snapshot_idx]
+            print(f"\nExample: Snapshot {snapshot_idx} at time t={data['time'][snapshot_idx]}")
+            print(f"  u_snapshot shape: {u_snapshot.shape}")
+            print(f"  v_snapshot shape: {v_snapshot.shape}")
 
     except Exception as e:
         print(f"Error: {e}")

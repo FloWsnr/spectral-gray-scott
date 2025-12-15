@@ -86,15 +86,15 @@ fi
 # Set F and k to desired values (examples: gliders F=0.014 k=0.054, bubbles F=0.012 k=0.050)
 DELTA_U=0.00002
 DELTA_V=0.00001
-F=0.014
-K=0.054
-RANDOM_SEED=1
+F=0.078
+K=0.061
+RANDOM_SEED="[1,2]"
 INIT_TYPE="gaussians"
 
 # Time step parameters
 DT=1
 SNAP_DT=10
-TEND=10000
+TEND=5000
 
 # Print parameters
 echo "Running single simulation with parameters:"

@@ -24,10 +24,9 @@ The codebase uses **MATLAB** for simulations (spectral methods via Chebfun) and 
 4. Job status tracking → Monitors completion/failures for resume capability
 
 Output structure:
-- **Array jobs (new)**: `results/snapshots/{SLURM_ARRAY_JOB_ID}/{job_id}/data.h5`
-- **Legacy**: `results/snapshots/gs_F={F}_k={k}_{init}_{seed}/data.h5`
+- `results/snapshots/F{F}_k{k}_du{delta_u}_dv{delta_v}_{init_type}/data.h5`
 
-The new structure organizes results by SLURM array job ID and parameter file job_id, avoiding overwrites when using the same F/k but different diffusivities or initialization parameters.
+Directories are named based on simulation parameters only (F, k, delta_u, delta_v, initialization type), excluding random seeds. Multiple trajectories with different random seeds but identical parameters are stored together in a single HDF5 file with shape `[n_trajectories, n_time, x, y]`.
 
 ## Development Commands
 
@@ -40,9 +39,9 @@ addpath('chebfun');
 gen_gs(0.00002, 0.00001, 0.014, 0.054, 1, 'gaussians', 1, 10, 10000)
 ```
 
-Parameters: `gen_gs(delta_u, delta_v, F, k, random_seed, init_type, dt, snap_dt, tend, array_job_id, job_id)`
+Parameters: `gen_gs(delta_u, delta_v, F, k, random_seed, init_type, dt, snap_dt, tend)`
 
-The last two parameters (array_job_id, job_id) are optional. If omitted, the legacy directory naming scheme is used. When running via `run_array_simulation.sh`, these are automatically set from SLURM variables.
+All optional time parameters (dt, snap_dt, tend) have defaults. Multiple random seeds can be passed as an array: `gen_gs(0.00002, 0.00001, 0.014, 0.054, [1,2,3], 'gaussians')`
 
 ### Parameter Sweep Workflow
 
@@ -72,14 +71,14 @@ bash resume_failed_jobs.sh params.csv
 ### Visualization
 
 ```bash
-# View all snapshots (new directory structure)
-python visualize_data.py results/snapshots/12345/1/
+# View all snapshots
+python visualize_data.py results/snapshots/F0.014_k0.054_du2.0e-05_dv1.0e-05_gaussians/
 
 # View specific snapshot
-python visualize_data.py results/snapshots/12345/1/ --snapshot 500
+python visualize_data.py results/snapshots/F0.014_k0.054_du2.0e-05_dv1.0e-05_gaussians/ --snapshot 500
 
-# Legacy directory structure also supported
-python visualize_data.py results/snapshots/gs_F=014_k=054_gaussians_1/
+# View specific trajectory (if multiple seeds)
+python visualize_data.py results/snapshots/F0.014_k0.054_du2.0e-05_dv1.0e-05_gaussians/ --trajectory 0
 ```
 
 ## Critical Implementation Details
@@ -102,11 +101,11 @@ The `run_array_simulation.sh` script expects:
 ### HDF5 Structure
 
 Datasets in `data.h5`:
-- `/u` and `/v`: shape `[128, 128, num_snapshots]` - Concentration fields (note: MATLAB writes in column-major, Python reads in row-major)
-- `/x` and `/y`: shape `[128]` - Chebyshev grid points on domain [-1,1]
+- `/u` and `/v`: shape `[n_seeds, num_snapshots, 128, 128]` - Concentration fields with dimensions `[n_trajectories, n_time, x, y]` (MATLAB permutes for correct Python reading)
+- `/x` and `/y`: shape `[128]` - Spatial grid points on domain [-1,1]
 - `/time`: shape `[num_snapshots]` - Time values for each snapshot
 
-Grid: Chebyshev points via `chebpts(128, [-1, 1])` on domain [-1,1]×[-1,1]
+Grid: Uniform grid via `linspace(-1, 1, 128)` on domain [-1,1]×[-1,1]
 
 Metadata stored as HDF5 attributes on root `/`: `F`, `k`, `delta_u`, `delta_v`, `random_seed`, `initialization`, `num_snapshots`, `grid_size_x`, `grid_size_y`, `domain`, `time_step`, `snapshot_interval`, `final_time`, `scheme`, `dealias`
 
@@ -170,7 +169,7 @@ Check MATLAB logs in `logs/` directory for detailed error messages.
 
 ### Data Loading
 
-Python `load_data.py` reconstructs grid via `np.polynomial.chebyshev.chebpts(128)` to match MATLAB's Chebyshev grid. For custom processing, read HDF5 directly with `h5py`.
+Python `load_data.py` reads spatial grids directly from HDF5 `/x` and `/y` datasets. It automatically detects and handles both legacy 3D format `[x, y, time]` and new 4D format `[n_trajectories, n_time, x, y]`. For custom processing, read HDF5 directly with `h5py`.
 
 ## File Locations
 

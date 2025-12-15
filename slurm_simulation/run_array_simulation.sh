@@ -16,14 +16,14 @@
 #SBATCH --ntasks-per-node=1
 
 ### How much memory in total (MB)
-#SBATCH --mem=5G
+#SBATCH --mem=16G  # Increased from 5G for multi-seed support (100 seeds)
 
 ### Mail notification configuration
 #SBATCH --mail-type=FAIL
 #SBATCH --mail-user=florian.wiesner@avt.rwth-aachen.de
 
 ### Maximum runtime per task
-#SBATCH --time=00:10:00
+#SBATCH --time=16:00:00  # Increased from 00:10:00 for multi-seed support (16 hours)
 
 ### Partition
 #SBATCH --partition=standard
@@ -70,8 +70,28 @@ fi
 LINE_NUM=$((SLURM_ARRAY_TASK_ID + 1))
 PARAMS=$(sed -n "${LINE_NUM}p" "${PARAM_FILE}")
 
-# Parse CSV fields (job_id,delta_u,delta_v,F,k,random_seed,init_type,dt,snap_dt,tend)
-IFS=',' read -r JOB_ID DELTA_U DELTA_V F K RANDOM_SEED INIT_TYPE DT SNAP_DT TEND <<< "${PARAMS}"
+# Parse CSV fields (job_id,delta_u,delta_v,F,k,random_seeds,init_type,dt,snap_dt,tend)
+IFS=',' read -r JOB_ID DELTA_U DELTA_V F K RANDOM_SEEDS INIT_TYPE DT SNAP_DT TEND <<< "${PARAMS}"
+
+# Parse comma-separated seeds into MATLAB array format
+# Input:  "1,2,3,4,5" or "1" (CSV may have quotes or not)
+# Output: [1,2,3,4,5] or [1]
+
+# Remove any quotes and spaces that CSV might have added
+RANDOM_SEEDS_CLEAN=$(echo "${RANDOM_SEEDS}" | tr -d '"' | tr -d "'" | tr -d ' ')
+
+# Validate not empty
+if [ -z "${RANDOM_SEEDS_CLEAN}" ]; then
+    echo "ERROR: Empty random_seeds in line ${LINE_NUM}"
+    echo "Line content: ${PARAMS}"
+    exit 1
+fi
+
+# Create MATLAB array syntax: "1,2,3" -> "[1,2,3]"
+MATLAB_SEED_ARRAY="[${RANDOM_SEEDS_CLEAN}]"
+NUM_SEEDS=$(echo "${RANDOM_SEEDS_CLEAN}" | awk -F',' '{print NF}')
+
+echo "Parsed ${NUM_SEEDS} random seeds: ${MATLAB_SEED_ARRAY}"
 
 # Verify we read parameters correctly
 if [ -z "${F}" ] || [ -z "${K}" ]; then
@@ -150,7 +170,8 @@ STATUS_FILE="${STATUS_DIR}/job_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.stat
     echo "k: ${K}"
     echo "DELTA_U: ${DELTA_U}"
     echo "DELTA_V: ${DELTA_V}"
-    echo "RANDOM_SEED: ${RANDOM_SEED}"
+    echo "RANDOM_SEEDS: ${RANDOM_SEEDS_CLEAN}"
+    echo "NUM_SEEDS: ${NUM_SEEDS}"
     echo "INIT_TYPE: ${INIT_TYPE}"
     echo "DT: ${DT}"
     echo "SNAP_DT: ${SNAP_DT}"
@@ -168,7 +189,7 @@ echo "  F:            ${F}"
 echo "  k:            ${K}"
 echo "  Delta U:      ${DELTA_U}"
 echo "  Delta V:      ${DELTA_V}"
-echo "  Random Seed:  ${RANDOM_SEED}"
+echo "  Random Seeds: ${RANDOM_SEEDS_CLEAN} (${NUM_SEEDS} total)"
 echo "  Init Type:    ${INIT_TYPE}"
 echo "  Time Step:    ${DT}"
 echo "  Snapshot dt:  ${SNAP_DT}"
@@ -176,7 +197,7 @@ echo "  Final Time:   ${TEND}"
 echo "========================================"
 
 # Log file (unique per job)
-LOG_FILE="${LOG_DIR}/${INIT_TYPE}_${RANDOM_SEED}_F${F}_k${K}_$(date +%Y%m%d_%H%M%S).log"
+LOG_FILE="${LOG_DIR}/job_${JOB_ID}_${INIT_TYPE}_F${F}_k${K}_$(date +%Y%m%d_%H%M%S).log"
 
 # ============================================================================
 # RUN SIMULATION
@@ -186,8 +207,9 @@ echo "Starting simulation (log: ${LOG_FILE})"
 echo "Progress will be shown below and saved to log file..."
 echo ""
 
-# Run MATLAB simulation (pass array job ID and job ID for directory naming)
-${MATLAB_CMD} -batch "addpath('${SCRIPT_DIR}/simulation'); addpath('${CHEBFUN_DIR}'); gen_gs(${DELTA_U}, ${DELTA_V}, ${F}, ${K}, ${RANDOM_SEED}, '${INIT_TYPE}', ${DT}, ${SNAP_DT}, ${TEND}, '${SLURM_ARRAY_JOB_ID}', '${JOB_ID}')" \
+# Run MATLAB simulation
+# Pass MATLAB array syntax for seeds: [1,2,3,...,100]
+${MATLAB_CMD} -batch "addpath('${SCRIPT_DIR}/simulation'); addpath('${CHEBFUN_DIR}'); gen_gs(${DELTA_U}, ${DELTA_V}, ${F}, ${K}, ${MATLAB_SEED_ARRAY}, '${INIT_TYPE}', ${DT}, ${SNAP_DT}, ${TEND})" \
     2>&1 | tee "${LOG_FILE}"
 
 EXIT_CODE=$?
@@ -216,7 +238,14 @@ echo "Log saved to: ${LOG_FILE}"
 echo "Status saved to: ${STATUS_FILE}"
 
 # Count generated files for this simulation
-OUTPUT_DIR="${SNAPSHOT_DIR}/${SLURM_ARRAY_JOB_ID}/${JOB_ID}"
+# Use parameter-based directory structure (gen_gs.m creates this)
+F_FMT=$(printf "%.3f" ${F})
+K_FMT=$(printf "%.3f" ${K})
+DU_FMT=$(printf "%.1e" ${DELTA_U})
+DV_FMT=$(printf "%.1e" ${DELTA_V})
+
+OUTPUT_DIR="${SNAPSHOT_DIR}/F${F_FMT}_k${K_FMT}_du${DU_FMT}_dv${DV_FMT}_${INIT_TYPE}"
+
 if [ -d "${OUTPUT_DIR}" ]; then
     num_files=$(find "${OUTPUT_DIR}" -name "*.h5" 2>/dev/null | wc -l)
     echo "Snapshot files generated: ${num_files}"

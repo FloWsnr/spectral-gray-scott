@@ -1,21 +1,19 @@
-function gen_gs(delta_u, delta_v, F, k, random_seed, init_type, dt, snap_dt, tend, array_job_id, job_id)
-% GEN_GS Generate a single Gray-Scott reaction-diffusion simulation
+function gen_gs(delta_u, delta_v, F, k, random_seeds, init_type, dt, snap_dt, tend)
+% GEN_GS Generate Gray-Scott reaction-diffusion simulations for multiple random seeds
 %
 % Syntax:
-%   gen_gs(delta_u, delta_v, F, k, random_seed, init_type, dt, snap_dt, tend, array_job_id, job_id)
+%   gen_gs(delta_u, delta_v, F, k, random_seeds, init_type, dt, snap_dt, tend)
 %
 % Parameters:
 %   delta_u       - Diffusion coefficient for u
 %   delta_v       - Diffusion coefficient for v
 %   F             - Feed rate parameter
 %   k             - Kill rate parameter
-%   random_seed   - Random seed for reproducibility (also used for output filename)
+%   random_seeds  - Array of random seeds (e.g., [1,2,3,...,100]) or scalar
 %   init_type     - Initialization type: 'gaussians' or 'fourier'
 %   dt            - Time step size (optional, default: 1)
 %   snap_dt       - Snapshot interval (optional, default: 10)
 %   tend          - Final time (optional, default: 10000)
-%   array_job_id  - SLURM array job ID (optional, for directory naming)
-%   job_id        - Job ID from parameter file (optional, for directory naming)
 
 init_type = lower(init_type);
 
@@ -34,15 +32,18 @@ end
 if nargin < 9 || isempty(tend)
     tend = 10000;
 end
-if nargin < 10 || isempty(array_job_id)
-    array_job_id = '';
-end
-if nargin < 11 || isempty(job_id)
-    job_id = '';
+
+% Validate and prepare seed array
+if isempty(random_seeds)
+    error('random_seeds cannot be empty');
 end
 
-% Set random seed
-rng(random_seed);
+% Convert scalar to array for consistency
+if isscalar(random_seeds)
+    random_seeds = [random_seeds];
+end
+
+n_seeds = length(random_seeds);
 
 % Simulation parameters
 dom = [-1 1 -1 1];
@@ -59,21 +60,12 @@ S = spinop2(dom, tspan);
 S.lin    = @(u,v) [ delta_u*lap(u)   ; delta_v*lap(v)  ];
 S.nonlin = @(u,v) [ -u.*v.^2+F*(1-u) ; u.*v.^2-(F+k)*v ];
 
-% Initialize based on type
+% Store initialization parameters for later use in loop
 if strcmp(init_type, 'gaussians')
     ngauss = [10 100];
     amp = [1 3];
     width = [150 300];
     normalize = @(u) (u-min2(u)) / max2(u-min2(u));
-
-    uinit = random_gaussians(ngauss, amp, width, dom);
-    uinit = @(x,y) 1-uinit(x,y);
-    vinit = random_gaussians(ngauss, amp, width, dom);
-    uinit = chebfun2(uinit, dom, 'trig');
-    vinit = chebfun2(vinit, dom, 'trig');
-    uinit = normalize(uinit);
-    vinit = normalize(vinit);
-    S.init = chebfun2v(uinit, vinit, dom);
 
     % Additional metadata for Gaussians
     metadata_extra.ngauss_range = ngauss;
@@ -81,8 +73,6 @@ if strcmp(init_type, 'gaussians')
     metadata_extra.width_range = width;
 else  % fourier
     nfourier = 32;
-    [uinit, vinit] = init_fourier(F, k, nfourier, dom);
-    S.init = chebfun2v(uinit, vinit, dom);
 
     % Additional metadata for Fourier
     metadata_extra.nfourier = nfourier;
@@ -94,7 +84,7 @@ fprintf('========================================\n');
 fprintf('Parameters:     F=%.4f, k=%.4f\n', F, k);
 fprintf('Diffusion:      Du=%.5f, Dv=%.5f\n', delta_u, delta_v);
 fprintf('Initialization: %s\n', init_type);
-fprintf('Random Seed:    %d\n', random_seed);
+fprintf('Random Seeds:   %d seeds (min=%d, max=%d)\n', n_seeds, min(random_seeds), max(random_seeds));
 fprintf('Domain:         [%.1f, %.1f] x [%.1f, %.1f]\n', dom(1), dom(2), dom(3), dom(4));
 fprintf('Grid Size:      %d x %d\n', n, n);
 fprintf('Time Step:      dt=%.2f\n', dt);
@@ -102,53 +92,93 @@ fprintf('Final Time:     t=%.0f\n', tend);
 fprintf('Snapshots:      every %.0f time units (%d total)\n', snap_dt, length(tspan));
 fprintf('Scheme:         %s\n', pref.scheme);
 fprintf('========================================\n');
-fprintf('Starting time integration...\n');
-fprintf('This may take a while (simulating %.0f time units)...\n', tend);
+fprintf('Starting time integration for %d trajectories...\n', n_seeds);
+fprintf('This may take a while (simulating %.0f time units × %d seeds)...\n', tend, n_seeds);
 fprintf('Start time: %s\n', datestr(now, 'yyyy-mm-dd HH:MM:SS'));
 fprintf('========================================\n\n');
 
 try
     tic;
-    uv = spin2(S, n, dt, pref);
-    elapsed = toc;
 
-    % Create subfolder based on array job ID and job ID if provided,
-    % otherwise fall back to old naming scheme
-    if ~isempty(array_job_id) && ~isempty(job_id)
-        subfolder = sprintf('results/snapshots/%s/%s', array_job_id, job_id);
-    else
-        % Legacy naming for backward compatibility
-        subfolder = sprintf('results/snapshots/gs_F=%.3d_k=%.3d_%s_%d', 1000*F, 1000*k, init_type, random_seed);
+    % Pre-allocate arrays after first simulation
+    u_all = [];
+    v_all = [];
+    first_run = true;
+
+    % Loop over random seeds
+    for seed_idx = 1:n_seeds
+        current_seed = random_seeds(seed_idx);
+        fprintf('\n----------------------------------------\n');
+        fprintf('Trajectory %d/%d (seed=%d)\n', seed_idx, n_seeds, current_seed);
+        fprintf('----------------------------------------\n');
+
+        % Set random seed for this trajectory
+        rng(current_seed);
+
+        % Re-initialize S.init for this seed
+        if strcmp(init_type, 'gaussians')
+            uinit = random_gaussians(ngauss, amp, width, dom);
+            uinit = @(x,y) 1-uinit(x,y);
+            vinit = random_gaussians(ngauss, amp, width, dom);
+            uinit = chebfun2(uinit, dom, 'trig');
+            vinit = chebfun2(vinit, dom, 'trig');
+            uinit = normalize(uinit);
+            vinit = normalize(vinit);
+            S.init = chebfun2v(uinit, vinit, dom);
+        else
+            [uinit, vinit] = init_fourier(F, k, nfourier, dom);
+            S.init = chebfun2v(uinit, vinit, dom);
+        end
+
+        % Run simulation
+        fprintf('Running ETDRK4 integration...\n');
+        sim_start = tic;
+        uv = spin2(S, n, dt, pref);
+        sim_elapsed = toc(sim_start);
+        fprintf('Simulation %d/%d complete in %.2f seconds (%.2f minutes)\n', seed_idx, n_seeds, sim_elapsed, sim_elapsed/60);
+
+        % Extract data
+        [~, num_snapshots] = size(uv);
+
+        % Allocate storage on first iteration
+        if first_run
+            fprintf('Allocating storage for [%d seeds × %d snapshots × %d × %d]...\n', ...
+                    n_seeds, num_snapshots, n, n);
+            u_all = zeros(n_seeds, n, n, num_snapshots, 'single');
+            v_all = zeros(n_seeds, n, n, num_snapshots, 'single');
+            first_run = false;
+
+            % Set up grid for evaluation
+            x = linspace(dom(1), dom(2), n);
+            y = linspace(dom(3), dom(4), n);
+            [XX, YY] = meshgrid(x, y);
+        end
+
+        % Extract chebfun2 values to array
+        fprintf('Extracting chebfun2 values...\n');
+        for ik = 1:num_snapshots
+            u_all(seed_idx, :, :, ik) = single(real(uv{1, ik}(XX, YY)));
+            v_all(seed_idx, :, :, ik) = single(real(uv{2, ik}(XX, YY)));
+
+            if mod(ik, 200) == 0 || ik == num_snapshots
+                fprintf('  Seed %d: Processed snapshot %d/%d\n', current_seed, ik, num_snapshots);
+            end
+        end
     end
+
+    total_elapsed = toc;
+    fprintf('\n========================================\n');
+    fprintf('All %d simulations complete!\n', n_seeds);
+    fprintf('Total elapsed time: %.2f seconds (%.2f minutes)\n', total_elapsed, total_elapsed/60);
+    fprintf('Average time per trajectory: %.2f seconds\n', total_elapsed/n_seeds);
+    fprintf('========================================\n');
+
+    % Create subfolder based on parameters only (excluding random seeds)
+    subfolder = sprintf('results/snapshots/F%.3f_k%.3f_du%.1e_dv%.1e_%s', ...
+                        F, k, delta_u, delta_v, init_type);
 
     if ~exist(subfolder, 'dir')
         mkdir(subfolder);
-    end
-
-    % Convert chebfun data to arrays and save to HDF5
-    fprintf('Converting chebfun data to arrays...\n');
-
-    % Get dimensions
-    [~, num_snapshots] = size(uv);
-    fprintf('  Number of snapshots: %d\n', num_snapshots);
-
-    % Set up grid for evaluation (Chebyshev points)
-    x = linspace(dom(1), dom(2), n);
-    y = linspace(dom(3), dom(4), n);
-    [XX, YY] = meshgrid(x, y);
-
-    % Preallocate arrays
-    u_data = zeros(n, n, num_snapshots);
-    v_data = zeros(n, n, num_snapshots);
-
-    % Extract values by evaluating chebfun2 objects on the grid
-    for ik = 1:num_snapshots
-        u_data(:,:,ik) = real(uv{1, ik}(XX, YY));
-        v_data(:,:,ik) = real(uv{2, ik}(XX, YY));
-
-        if mod(ik, 10) == 0 || ik == num_snapshots
-            fprintf('  Processed snapshot %d/%d\n', ik, num_snapshots);
-        end
     end
 
     % Save to HDF5 file
@@ -160,20 +190,32 @@ try
         delete(h5file);
     end
 
-    % Convert to single precision (float32) to reduce file size
-    fprintf('Converting to single precision (float32)...\n');
-    u_data = single(u_data);
-    v_data = single(v_data);
+    % Permute dimensions: [n_seeds, n, n, num_snapshots] → [n, n, num_snapshots, n_seeds]
+    % MATLAB writes in column-major, so Python will read the reversed shape:
+    % Python reads: [n_seeds, num_snapshots, n, n] = [n_trajectories, n_time, x, y]
+    fprintf('Permuting dimensions for HDF5 output...\n');
+    u_out = permute(u_all, [2, 3, 4, 1]);
+    v_out = permute(v_all, [2, 3, 4, 1]);
+
+    fprintf('  MATLAB shape: [%d, %d, %d, %d] (will be reversed in Python)\n', size(u_out));
+    fprintf('  Python will read: [n_trajectories=%d, n_time=%d, x=%d, y=%d]\n', n_seeds, num_snapshots, n, n);
+
+    % Convert spatial grids to single precision
     x = single(x);
     y = single(y);
 
-    % Write u and v datasets
-    h5create(h5file, '/u', size(u_data), 'Datatype', 'single');
-    h5write(h5file, '/u', u_data);
-    h5create(h5file, '/v', size(v_data), 'Datatype', 'single');
-    h5write(h5file, '/v', v_data);
+    % Write with compression (deflate level 5)
+    % ChunkSize matches MATLAB shape [n, n, num_snapshots, 1] to chunk by trajectory
+    fprintf('Writing datasets with compression...\n');
+    h5create(h5file, '/u', size(u_out), 'Datatype', 'single', ...
+             'ChunkSize', [n, n, num_snapshots, 1], 'Deflate', 5);
+    h5write(h5file, '/u', u_out);
 
-    % Write spatial grids (Chebyshev points)
+    h5create(h5file, '/v', size(v_out), 'Datatype', 'single', ...
+             'ChunkSize', [n, n, num_snapshots, 1], 'Deflate', 5);
+    h5write(h5file, '/v', v_out);
+
+    % Write spatial grids
     h5create(h5file, '/x', size(x), 'Datatype', 'single');
     h5write(h5file, '/x', x);
     h5create(h5file, '/y', size(y), 'Datatype', 'single');
@@ -184,13 +226,20 @@ try
     h5create(h5file, '/time', size(time_array), 'Datatype', 'single');
     h5write(h5file, '/time', time_array);
 
+    % Write random_seeds as dataset (cannot use attributes for arrays in old MATLAB)
+    h5create(h5file, '/random_seeds', size(random_seeds), 'Datatype', 'int32');
+    h5write(h5file, '/random_seeds', int32(random_seeds));
+
+    fprintf('HDF5 write complete.\n');
+
     % Prepare metadata
     metadata.F = F;
     metadata.k = k;
     metadata.delta_u = delta_u;
     metadata.delta_v = delta_v;
     metadata.initialization = init_type;
-    metadata.random_seed = random_seed;
+    metadata.random_seeds = random_seeds;     % Changed: now array
+    metadata.n_trajectories = n_seeds;        % NEW field
     metadata.domain = dom;
     metadata.grid_size = n;
     metadata.time_step = dt;
@@ -214,7 +263,7 @@ try
     h5writeatt(h5file, '/', 'delta_u', delta_u);
     h5writeatt(h5file, '/', 'delta_v', delta_v);
     h5writeatt(h5file, '/', 'initialization', init_type);
-    h5writeatt(h5file, '/', 'random_seed', random_seed);
+    h5writeatt(h5file, '/', 'n_trajectories', n_seeds);  % NEW
     h5writeatt(h5file, '/', 'num_snapshots', num_snapshots);
     h5writeatt(h5file, '/', 'grid_size_x', n);
     h5writeatt(h5file, '/', 'grid_size_y', n);
@@ -224,6 +273,7 @@ try
     h5writeatt(h5file, '/', 'final_time', tend);
     h5writeatt(h5file, '/', 'scheme', pref.scheme);
     h5writeatt(h5file, '/', 'dealias', pref.dealias);
+    % Note: random_seeds array written as dataset (see above)
 
     % Save metadata as JSON (for compatibility)
     jsonfile = fullfile(subfolder, 'metadata.json');
@@ -232,14 +282,18 @@ try
     fclose(fid);
 
     fprintf('\n========================================\n');
-    fprintf('Simulation Complete!\n');
+    fprintf('All Simulations Complete!\n');
     fprintf('========================================\n');
     fprintf('End time:       %s\n', datestr(now, 'yyyy-mm-dd HH:MM:SS'));
-    fprintf('Elapsed time:   %.2f seconds (%.2f minutes)\n', elapsed, elapsed/60);
+    fprintf('Elapsed time:   %.2f seconds (%.2f minutes)\n', total_elapsed, total_elapsed/60);
+    fprintf('Trajectories:   %d\n', n_seeds);
     fprintf('Saved to:       %s\n', subfolder);
     fprintf('Files created:\n');
     fprintf('  - data.h5 (HDF5 format with field values)\n');
-    fprintf('    Datasets: /u [%dx%dx%d], /v [%dx%dx%d]\n', n, n, num_snapshots, n, n, num_snapshots);
+    fprintf('    Datasets: /u [%d×%d×%d×%d], /v [%d×%d×%d×%d]\n', ...
+            n_seeds, num_snapshots, n, n, n_seeds, num_snapshots, n, n);
+    fprintf('    Dimensions: [n_trajectories, n_time, x, y]\n');
+    fprintf('    Compression: Deflate level 5\n');
     fprintf('  - metadata.json (JSON format)\n');
     fprintf('========================================\n');
 catch ME

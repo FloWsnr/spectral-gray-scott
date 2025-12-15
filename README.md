@@ -66,16 +66,15 @@ addpath('simulation');
 addpath('chebfun');  % Ensure Chebfun is in your path
 
 % Run simulation
-gen_gs(pattern, delta_u, delta_v, F, k, random_seed, init_type, dt, snap_dt, tend)
+gen_gs(delta_u, delta_v, F, k, random_seeds, init_type, dt, snap_dt, tend)
 ```
 
 **Parameters:**
-- `pattern` - Pattern type: 'gliders', 'bubbles', 'maze', 'worms', 'spirals', 'spots'
 - `delta_u` - Diffusion coefficient for u (typically 0.00002)
 - `delta_v` - Diffusion coefficient for v (typically 0.00001)
 - `F` - Feed rate parameter
 - `k` - Kill rate parameter
-- `random_seed` - Random seed for reproducibility
+- `random_seeds` - Random seed(s) for reproducibility (scalar or array, e.g., 1 or [1,2,3])
 - `init_type` - Initialization: 'gaussians' or 'fourier'
 - `dt` - Time step size (optional, default: 1)
 - `snap_dt` - Snapshot interval (optional, default: 10)
@@ -83,7 +82,11 @@ gen_gs(pattern, delta_u, delta_v, F, k, random_seed, init_type, dt, snap_dt, ten
 
 **Example:**
 ```matlab
-gen_gs('gliders', 0.00002, 0.00001, 0.014, 0.054, 1, 'gaussians', 1, 10, 10000)
+% Single trajectory (gliders pattern: F=0.014, k=0.054)
+gen_gs(0.00002, 0.00001, 0.014, 0.054, 1, 'gaussians', 1, 10, 10000)
+
+% Multiple trajectories with different random seeds
+gen_gs(0.00002, 0.00001, 0.014, 0.054, [1,2,3], 'gaussians', 1, 10, 10000)
 ```
 
 ### Using the SLURM Script

@@ -17,7 +17,7 @@ Usage Examples:
     # Multiple random seeds
     python generate_parameter_grid.py \\
         --F 0.01:0.1:0.01 --k 0.05:0.065:0.0015 \\
-        --random-seed 1,2,3,4,5 -o params.csv
+        --random-seeds 1,2,3,4,5 -o params.csv
 
     # Sweep diffusion coefficients (delta_u × delta_v)
     python generate_parameter_grid.py \\
@@ -216,7 +216,7 @@ def generate_grid(fixed_params, sweep_params):
         "delta_v",
         "F",
         "k",
-        "random_seed",
+        "random_seeds",  # Changed from random_seed (plural)
         "init_type",
         "dt",
         "snap_dt",
@@ -247,7 +247,7 @@ def validate_parameters(df):
         "delta_v",
         "F",
         "k",
-        "random_seed",
+        "random_seeds",  # Changed from random_seed
         "init_type",
         "dt",
         "snap_dt",
@@ -277,9 +277,26 @@ def validate_parameters(df):
         if (df[param] <= 0).any():
             raise ValueError(f"Parameter {param} must be positive")
 
-    # Check random_seed is integer
-    if not all(df["random_seed"].apply(lambda x: float(x).is_integer())):
-        raise ValueError("random_seed must be integer values")
+    # NEW: Validate random_seeds format
+    MAX_SEEDS_PER_JOB = 150
+    for idx, seed_str in df["random_seeds"].items():
+        try:
+            seeds = [int(s.strip()) for s in str(seed_str).split(",")]
+
+            if len(seeds) == 0:
+                raise ValueError(f"Row {idx+1}: Empty seed list")
+
+            if len(seeds) > MAX_SEEDS_PER_JOB:
+                raise ValueError(f"Row {idx+1}: Too many seeds ({len(seeds)}, max={MAX_SEEDS_PER_JOB})")
+
+            if any(s < 0 for s in seeds):
+                raise ValueError(f"Row {idx+1}: Seeds must be non-negative")
+
+        except ValueError as e:
+            if "invalid literal" in str(e):
+                raise ValueError(f"Row {idx+1}: Invalid random_seeds format '{seed_str}' - must be comma-separated integers")
+            else:
+                raise
 
     # Check for duplicates
     param_cols = [col for col in df.columns if col != "job_id"]
@@ -337,7 +354,7 @@ Examples:
   %(prog)s --F 0.001:0.1:20:log --k 0.05:0.065:0.001 -o params.csv
 
   # Multiple random seeds for statistics
-  %(prog)s --F 0.014:0.026:0.004 --k 0.051:0.057:0.002 --random-seed 1,2,3,4,5 -o params.csv
+  %(prog)s --F 0.014:0.026:0.004 --k 0.051:0.057:0.002 --random-seeds 1,2,3,4,5 -o params.csv
 
   # Sweep diffusion coefficients
   %(prog)s --F 0.014 --k 0.054 --delta-u 0.00001:0.00005:0.00001 --delta-v 0.000005:0.00002:0.000005 -o params.csv
@@ -381,10 +398,10 @@ Range format:
         help="Kill rate parameter (required, format: start:stop:step or val1,val2,...)",
     )
     parser.add_argument(
-        "--random-seed",
+        "--random-seeds",  # Changed to plural
         type=str,
         default="1",
-        help="Random seed(s) (default: 1, format: val1,val2,... or start:stop:step)",
+        help="Random seed(s) (comma-separated list, e.g., 1,2,3,...,100 - stored as list, not expanded)",
     )
     parser.add_argument(
         "--init-type",
@@ -439,7 +456,7 @@ Range format:
             "delta_v": args.delta_v,
             "F": args.F,
             "k": args.k,
-            "random_seed": args.random_seed,
+            "random_seeds": args.random_seeds,  # Changed to plural
             "init_type": args.init_type,
             "dt": args.dt,
             "snap_dt": args.snap_dt,
@@ -455,6 +472,10 @@ Range format:
                     ]
                 else:
                     fixed_params[param_name] = param_spec
+            elif param_name == "random_seeds":
+                # NEW: Store seed list as-is, don't expand into Cartesian product
+                # This prevents creating separate jobs for each seed
+                fixed_params[param_name] = param_spec
             else:
                 values = parse_range(param_spec)
                 if len(values) > 1:

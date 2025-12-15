@@ -28,7 +28,7 @@ def check_csv_format(param_file):
 def check_required_columns(df):
     """Check if all required columns are present."""
     required_cols = ['job_id', 'delta_u', 'delta_v', 'F', 'k',
-                     'random_seed', 'init_type', 'dt', 'snap_dt', 'tend']
+                     'random_seeds', 'init_type', 'dt', 'snap_dt', 'tend']  # Changed to random_seeds
 
     missing = [col for col in required_cols if col not in df.columns]
 
@@ -55,6 +55,25 @@ def check_missing_values(df):
 def check_parameter_ranges(df):
     """Validate parameter value ranges."""
     errors = []
+
+    # NEW: Validate random_seeds format
+    MAX_SEEDS_PER_JOB = 150
+    for idx, row in df.iterrows():
+        seed_str = str(row['random_seeds'])
+        try:
+            seeds = [int(s.strip()) for s in seed_str.split(',')]
+
+            if len(seeds) == 0:
+                errors.append(f"Row {idx+1}: Empty random_seeds")
+
+            if len(seeds) > MAX_SEEDS_PER_JOB:
+                errors.append(f"Row {idx+1}: Too many seeds ({len(seeds)}, max={MAX_SEEDS_PER_JOB})")
+
+            if any(s < 0 for s in seeds):
+                errors.append(f"Row {idx+1}: Negative seeds not allowed")
+
+        except ValueError:
+            errors.append(f"Row {idx+1}: Invalid random_seeds format '{seed_str}' - must be comma-separated integers")
 
     # Check valid init types
     valid_init_types = ['gaussians', 'fourier']
@@ -109,11 +128,20 @@ def estimate_resources(df):
     """Estimate resource requirements for the job array."""
     num_jobs = len(df)
 
-    # Typical values from run_simulation.sh
-    cores_per_job = 40
-    memory_per_job_gb = 100
-    time_per_job_hours = 24
-    output_size_mb = 0.8  # Approximate size per output
+    # Calculate total number of simulations across all seeds
+    total_simulations = 0
+    for seed_str in df['random_seeds']:
+        seeds = [int(s.strip()) for s in str(seed_str).split(',')]
+        total_simulations += len(seeds)
+
+    avg_seeds_per_job = total_simulations / num_jobs if num_jobs > 0 else 0
+
+    # Updated resource values from new run_array_simulation.sh
+    cores_per_job = 1  # Changed from 40 (single-threaded MATLAB)
+    memory_per_job_gb = 16  # Changed from 100 (need more for multiple seeds)
+    base_time_minutes = 10  # Time for single seed
+    time_per_job_hours = (base_time_minutes * avg_seeds_per_job) / 60  # Scale by number of seeds
+    output_size_mb = 2600  # ~2.6 GB compressed per job (was 0.8 MB)
 
     # Calculate totals
     total_core_hours = num_jobs * cores_per_job * time_per_job_hours
@@ -130,6 +158,8 @@ def estimate_resources(df):
 
     return {
         'num_jobs': num_jobs,
+        'total_simulations': total_simulations,
+        'avg_seeds_per_job': avg_seeds_per_job,
         'total_core_hours': total_core_hours,
         'total_memory_gb': total_memory_gb,
         'total_storage_gb': total_storage_gb,
@@ -161,14 +191,26 @@ def print_parameter_summary(df):
     print("\nParameter Summary:")
     print("=" * 70)
 
-    for col in ['delta_u', 'delta_v', 'F', 'k', 'random_seed',
+    for col in ['delta_u', 'delta_v', 'F', 'k', 'random_seeds',  # Changed to random_seeds
                 'init_type', 'dt', 'snap_dt', 'tend']:
         if col not in df.columns:
             continue
 
         unique_vals = df[col].unique()
 
-        if col in ['init_type']:
+        if col == 'random_seeds':
+            # Special handling for seed lists
+            seed_counts = []
+            for seed_str in df[col]:
+                seeds = [int(s.strip()) for s in str(seed_str).split(',')]
+                seed_counts.append(len(seeds))
+
+            print(f"\n{col}:")
+            print(f"  Min seeds per job: {min(seed_counts)}")
+            print(f"  Max seeds per job: {max(seed_counts)}")
+            print(f"  Average seeds per job: {sum(seed_counts)/len(seed_counts):.1f}")
+            print(f"  Total simulations: {sum(seed_counts)}")
+        elif col in ['init_type']:
             # Categorical parameters
             value_counts = df[col].value_counts()
             print(f"\n{col}:")
@@ -277,9 +319,10 @@ def main():
     resources = estimate_resources(df)
 
     print(f"\n  Total jobs: {resources['num_jobs']}")
-    print(f"  Total CPU core-hours: {resources['total_core_hours']:,}")
-    print(f"  Estimated storage: {resources['total_storage_gb']:.2f} GB")
-    print(f"  Per-job resources: {resources['cores_per_job']} cores, {resources['memory_per_job_gb']} GB RAM, {resources['time_per_job_hours']}h time limit")
+    print(f"  Total simulations: {resources['total_simulations']} ({resources['avg_seeds_per_job']:.1f} seeds/job avg)")
+    print(f"  Total CPU core-hours: {resources['total_core_hours']:,.0f}")
+    print(f"  Estimated storage: {resources['total_storage_gb']:.1f} GB")
+    print(f"  Per-job resources: {resources['cores_per_job']} cores, {resources['memory_per_job_gb']} GB RAM, {resources['time_per_job_hours']:.1f}h time limit")
 
     print(f"\n  Estimated wall time (with concurrent job limits):")
     for concurrency, wall_time in resources['wall_times'].items():
