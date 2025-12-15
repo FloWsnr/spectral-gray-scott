@@ -106,6 +106,79 @@ def parse_range(range_str):
     return np.array([float(range_str)])
 
 
+def create_baseline_combinations(fixed_params, sweep_params):
+    """
+    Create baseline parameter combinations that are always included.
+
+    These are well-known F/k combinations that produce interesting patterns.
+    Baseline combinations are expanded across sweep parameters (e.g., random_seed, init_type).
+
+    Args:
+        fixed_params: Dictionary of fixed parameter values
+        sweep_params: Dictionary of {param_name: array_of_values} for swept parameters
+
+    Returns:
+        pandas DataFrame with baseline parameter combinations
+    """
+    baseline_fk_pairs = [
+        (0.037, 0.060),
+        (0.030, 0.062),
+        (0.025, 0.060),
+        (0.078, 0.061),
+        (0.039, 0.058),
+        (0.026, 0.051),
+        (0.034, 0.056),
+        (0.014, 0.054),
+        (0.018, 0.051),
+        (0.014, 0.045),
+        (0.062, 0.061),
+    ]
+
+    baseline_delta_u = 0.00002
+    baseline_delta_v = 0.00001
+
+    # Start with fixed baseline parameters
+    baseline_fixed = {
+        'delta_u': baseline_delta_u,
+        'delta_v': baseline_delta_v,
+    }
+
+    # Add other fixed parameters that aren't F or k
+    for param, value in fixed_params.items():
+        if param not in ['F', 'k', 'delta_u', 'delta_v']:
+            baseline_fixed[param] = value
+
+    # Create sweep parameters for baseline (excluding F, k, delta_u, delta_v)
+    baseline_sweep = {}
+    for param, values in sweep_params.items():
+        if param not in ['F', 'k', 'delta_u', 'delta_v']:
+            baseline_sweep[param] = values
+
+    # Generate combinations: each F/k pair with Cartesian product of other sweep params
+    all_rows = []
+
+    if baseline_sweep:
+        # If there are other sweep parameters, do Cartesian product for each F/k pair
+        param_names = list(baseline_sweep.keys())
+        param_values = list(baseline_sweep.values())
+        other_combinations = list(itertools.product(*param_values))
+
+        for F, k in baseline_fk_pairs:
+            for combo in other_combinations:
+                row = {'F': F, 'k': k}
+                row.update(dict(zip(param_names, combo)))
+                row.update(baseline_fixed)
+                all_rows.append(row)
+    else:
+        # No other sweep parameters, just use the F/k pairs
+        for F, k in baseline_fk_pairs:
+            row = {'F': F, 'k': k}
+            row.update(baseline_fixed)
+            all_rows.append(row)
+
+    return pd.DataFrame(all_rows)
+
+
 def generate_grid(fixed_params, sweep_params):
     """
     Generate Cartesian product of all sweep parameters.
@@ -345,6 +418,11 @@ Range format:
     parser.add_argument(
         "--no-validate", action="store_true", help="Skip parameter validation"
     )
+    parser.add_argument(
+        "--no-baseline",
+        action="store_true",
+        help="Skip adding baseline F/k combinations (11 well-known parameter sets)",
+    )
 
     args = parser.parse_args()
 
@@ -391,6 +469,29 @@ Range format:
         print("\nGenerating parameter grid...")
         df = generate_grid(fixed_params, sweep_params)
         print(f"  Generated {len(df)} parameter combinations")
+
+        # Add baseline combinations if requested
+        if not args.no_baseline:
+            print("\nAdding baseline parameter combinations...")
+            baseline_df = create_baseline_combinations(fixed_params, sweep_params)
+            print(f"  Created {len(baseline_df)} baseline combinations")
+
+            # Concatenate baseline with generated grid
+            df_combined = pd.concat([df, baseline_df], ignore_index=True)
+
+            # Remove duplicates based on all parameter columns (excluding job_id)
+            param_cols = [col for col in df_combined.columns if col != 'job_id']
+            df_before_dedup = len(df_combined)
+            df_combined = df_combined.drop_duplicates(subset=param_cols, keep='first')
+            df_after_dedup = len(df_combined)
+
+            if df_before_dedup > df_after_dedup:
+                print(f"  Removed {df_before_dedup - df_after_dedup} duplicate combinations")
+
+            # Re-index job_id
+            df_combined['job_id'] = range(1, len(df_combined) + 1)
+            df = df_combined
+            print(f"  Total combinations after adding baseline: {len(df)}")
 
         # Validate
         if not args.no_validate:
