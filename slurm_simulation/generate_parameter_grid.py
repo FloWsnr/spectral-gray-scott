@@ -14,10 +14,15 @@ Usage Examples:
     python generate_parameter_grid.py \\
         --F 0.001:0.1:20:log --k 0.05:0.065:0.001 -o params.csv
 
-    # Multiple random seeds (using range syntax)
+    # Multiple random seeds - same seeds for all parameter combinations
     python generate_parameter_grid.py \\
         --F 0.01:0.1:0.01 --k 0.05:0.065:0.0015 \\
-        --random-seeds 1:50:1 -o params.csv
+        --random-seeds 1:5:1 -o params.csv
+
+    # Generate N unique random seeds per parameter combination
+    python generate_parameter_grid.py \\
+        --F 0.01:0.1:0.01 --k 0.05:0.065:0.0015 \\
+        --random-seeds 5 -o params.csv
 
     # Sweep diffusion coefficients (delta_u × delta_v)
     python generate_parameter_grid.py \\
@@ -349,8 +354,11 @@ Examples:
   # Logarithmic spacing (uses number of points)
   %(prog)s --F 0.001:0.1:20:log --k 0.05:0.065:0.001 -o params.csv
 
-  # Multiple random seeds for statistics (using range syntax)
-  %(prog)s --F 0.014:0.026:0.004 --k 0.051:0.057:0.002 --random-seeds 1:50:1 -o params.csv
+  # Multiple random seeds - same seeds for all parameter combinations
+  %(prog)s --F 0.014:0.026:0.004 --k 0.051:0.057:0.002 --random-seeds 1:5:1 -o params.csv
+
+  # Generate N unique random seeds per parameter combination
+  %(prog)s --F 0.014:0.026:0.004 --k 0.051:0.057:0.002 --random-seeds 5 -o params.csv
 
   # Sweep diffusion coefficients
   %(prog)s --F 0.014 --k 0.054 --delta-u 0.00001:0.00005:0.00001 --delta-v 0.000005:0.00002:0.000005 -o params.csv
@@ -397,7 +405,7 @@ Range format:
         "--random-seeds",  # Changed to plural
         type=str,
         default="1",
-        help="Random seed(s) (format: start:stop:step or val1,val2,... - all seeds stored in one job)",
+        help="Random seed(s). Single number N: generate N unique seeds per job. Range/list: same seeds for all jobs (format: start:stop:step or val1,val2,...)",
     )
     parser.add_argument(
         "--init-type",
@@ -459,6 +467,9 @@ Range format:
             "tend": args.tend,
         }
 
+        # Special flag for per-job random seed generation
+        num_seeds_per_job = None
+
         for param_name, param_spec in param_specs.items():
             # Special handling for string parameters
             if param_name in ["init_type"]:
@@ -469,12 +480,23 @@ Range format:
                 else:
                     fixed_params[param_name] = param_spec
             elif param_name == "random_seeds":
-                # Parse range specification and convert to comma-separated string
-                # This prevents expanding into Cartesian product (all seeds go in one job)
-                seed_values = parse_range(param_spec)
-                # Convert to integers and format as comma-separated string
-                seed_list = [str(int(s)) for s in seed_values]
-                fixed_params[param_name] = ",".join(seed_list)
+                # Check if it's a single number (not a range, not a comma-separated list)
+                if ":" not in param_spec and "," not in param_spec:
+                    # Single number: generate N unique seeds per job
+                    try:
+                        num_seeds_per_job = int(param_spec)
+                        if num_seeds_per_job <= 0:
+                            raise ValueError("Number of seeds per job must be positive")
+                        print(f"  Will generate {num_seeds_per_job} unique random seeds per parameter combination")
+                        # Don't add to fixed_params yet, will generate after grid creation
+                    except ValueError:
+                        raise ValueError(f"Invalid random-seeds specification: '{param_spec}' - must be a single integer, range, or comma-separated list")
+                else:
+                    # Range or list: parse and use same seeds for all jobs
+                    seed_values = parse_range(param_spec)
+                    # Convert to integers and format as comma-separated string
+                    seed_list = [str(int(s)) for s in seed_values]
+                    fixed_params[param_name] = ",".join(seed_list)
             else:
                 values = parse_range(param_spec)
                 if len(values) > 1:
@@ -490,11 +512,42 @@ Range format:
         df = generate_grid(fixed_params, sweep_params)
         print(f"  Generated {len(df)} parameter combinations")
 
+        # Generate unique random seeds per job if requested
+        if num_seeds_per_job is not None:
+            print(f"\nGenerating {num_seeds_per_job} unique random seeds for each of {len(df)} parameter combinations...")
+            # Use numpy's random generator for reproducibility
+            rng = np.random.default_rng(seed=42)
+
+            # Generate unique seeds for each row
+            # Use a large range to avoid collisions
+            max_seed = 2**31 - 1  # Max value for typical RNG seeds
+            all_seeds = []
+
+            for i in range(len(df)):
+                # Generate N unique seeds for this job
+                job_seeds = rng.integers(0, max_seed, size=num_seeds_per_job)
+                seed_str = ",".join(str(s) for s in job_seeds)
+                all_seeds.append(seed_str)
+
+            df["random_seeds"] = all_seeds
+            print(f"  Generated unique seed sets for {len(df)} jobs")
+
         # Add baseline combinations if requested
         if not args.no_baseline:
             print("\nAdding baseline parameter combinations...")
             baseline_df = create_baseline_combinations(fixed_params, sweep_params)
             print(f"  Created {len(baseline_df)} baseline combinations")
+
+            # Generate unique seeds for baseline if needed
+            if num_seeds_per_job is not None:
+                print(f"  Generating {num_seeds_per_job} unique random seeds for baseline combinations...")
+                rng = np.random.default_rng(seed=43)  # Different seed from main grid
+                baseline_seeds = []
+                for i in range(len(baseline_df)):
+                    job_seeds = rng.integers(0, 2**31 - 1, size=num_seeds_per_job)
+                    seed_str = ",".join(str(s) for s in job_seeds)
+                    baseline_seeds.append(seed_str)
+                baseline_df["random_seeds"] = baseline_seeds
 
             # Concatenate baseline with generated grid
             df_combined = pd.concat([df, baseline_df], ignore_index=True)
