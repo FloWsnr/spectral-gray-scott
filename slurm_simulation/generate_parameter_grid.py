@@ -6,28 +6,28 @@ This script creates a CSV file containing all parameter combinations for
 running multiple Gray-Scott simulations via SLURM array jobs.
 
 Usage Examples:
-    # F×k grid sweep (20×20 = 400 combinations)
+    # F×k grid sweep using step sizes
     python generate_parameter_grid.py \\
-        --F 0.01:0.1:20 --k 0.05:0.065:20 -o params.csv
+        --F 0.01:0.1:0.005 --k 0.05:0.065:0.001 -o params.csv
 
-    # Logarithmic spacing for F
+    # Logarithmic spacing for F (uses number of points)
     python generate_parameter_grid.py \\
-        --F 0.001:0.1:20:log --k 0.05:0.065:10 -o params.csv
+        --F 0.001:0.1:20:log --k 0.05:0.065:0.001 -o params.csv
 
     # Multiple random seeds
     python generate_parameter_grid.py \\
-        --F 0.01:0.1:10 --k 0.05:0.065:10 \\
+        --F 0.01:0.1:0.01 --k 0.05:0.065:0.0015 \\
         --random-seed 1,2,3,4,5 -o params.csv
 
     # Sweep diffusion coefficients (delta_u × delta_v)
     python generate_parameter_grid.py \\
         --F 0.014 --k 0.054 \\
-        --delta-u 0.00001:0.00005:5 \\
-        --delta-v 0.000005:0.00002:5 -o params.csv
+        --delta-u 0.00001:0.00005:0.00001 \\
+        --delta-v 0.000005:0.00002:0.000005 -o params.csv
 
     # Multiple initialization types (gaussians and fourier)
     python generate_parameter_grid.py \\
-        --F 0.01:0.1:10 --k 0.05:0.065:10 \\
+        --F 0.01:0.1:0.01 --k 0.05:0.065:0.0015 \\
         --init-type gaussians,fourier -o params.csv
 
     # Custom parameter values (comma-separated)
@@ -49,7 +49,7 @@ def parse_range(range_str):
     Parse a range specification into a numpy array.
 
     Formats supported:
-    - "start:stop:num" -> linspace(start, stop, num)
+    - "start:stop:step" -> arange(start, stop+step, step) with endpoint included
     - "start:stop:num:log" -> logspace(log10(start), log10(stop), num)
     - "val1,val2,val3" -> array([val1, val2, val3])
 
@@ -60,28 +60,47 @@ def parse_range(range_str):
         numpy array of values
     """
     # Check if it's a comma-separated list
-    if ',' in range_str and ':' not in range_str:
-        values = [float(x.strip()) for x in range_str.split(',')]
+    if "," in range_str and ":" not in range_str:
+        values = [float(x.strip()) for x in range_str.split(",")]
         return np.array(values)
 
     # Check if it's a range specification
-    if ':' in range_str:
-        parts = range_str.split(':')
+    if ":" in range_str:
+        parts = range_str.split(":")
         if len(parts) < 3:
-            raise ValueError(f"Range must be start:stop:num or start:stop:num:log, got: {range_str}")
+            raise ValueError(
+                f"Range must be start:stop:step or start:stop:num:log, got: {range_str}"
+            )
 
         start = float(parts[0])
         stop = float(parts[1])
-        num = int(parts[2])
+        third_param = float(parts[2])
 
-        if len(parts) == 4 and parts[3] == 'log':
-            # Logarithmic spacing
+        if len(parts) == 4 and parts[3] == "log":
+            # Logarithmic spacing (uses number of points)
+            num = int(parts[2])
             if start <= 0 or stop <= 0:
-                raise ValueError(f"Logarithmic spacing requires positive values, got: start={start}, stop={stop}")
+                raise ValueError(
+                    f"Logarithmic spacing requires positive values, got: start={start}, stop={stop}"
+                )
             return np.logspace(np.log10(start), np.log10(stop), num)
+        elif len(parts) == 3:
+            # Step size specification (default behavior)
+            step = third_param
+            if step <= 0:
+                raise ValueError(f"Step size must be positive, got: {step}")
+            if (stop - start) / step < 0:
+                raise ValueError(
+                    f"Step direction inconsistent with start/stop: start={start}, stop={stop}, step={step}"
+                )
+            # Use arange and include endpoint
+            return np.arange(
+                start, stop + step / 2, step
+            )  # Add step/2 to ensure endpoint is included
         else:
-            # Linear spacing
-            return np.linspace(start, stop, num)
+            raise ValueError(
+                f"Invalid range format. Use start:stop:step or start:stop:num:log"
+            )
 
     # Single value
     return np.array([float(range_str)])
@@ -102,22 +121,35 @@ def generate_grid(fixed_params, sweep_params):
     param_names = list(sweep_params.keys())
     param_values = list(sweep_params.values())
 
-    # Create Cartesian product
+    # Create Cartesian product and build DataFrame directly
+    print("  Creating Cartesian product of parameters...")
     combinations = list(itertools.product(*param_values))
 
-    # Build DataFrame
-    data = []
-    for i, combo in enumerate(combinations):
-        row = {'job_id': i + 1}
-        row.update(fixed_params)
-        row.update(dict(zip(param_names, combo)))
-        data.append(row)
+    # Build DataFrame from combinations without loop
+    print("  Building parameter DataFrame...")
+    df = pd.DataFrame(combinations, columns=param_names)
+
+    # Add fixed parameters as columns (vectorized operation)
+    for param, value in fixed_params.items():
+        df[param] = value
+
+    # Add job_id column (1-indexed)
+    df.insert(0, "job_id", range(1, len(df) + 1))
 
     # Define column order
-    column_order = ['job_id', 'delta_u', 'delta_v', 'F', 'k',
-                    'random_seed', 'init_type', 'dt', 'snap_dt', 'tend']
+    column_order = [
+        "job_id",
+        "delta_u",
+        "delta_v",
+        "F",
+        "k",
+        "random_seed",
+        "init_type",
+        "dt",
+        "snap_dt",
+        "tend",
+    ]
 
-    df = pd.DataFrame(data)
     # Ensure all columns exist (add missing ones with None)
     for col in column_order:
         if col not in df.columns:
@@ -137,29 +169,47 @@ def validate_parameters(df):
         True if valid, raises ValueError otherwise
     """
     # Check for required columns
-    required_cols = ['delta_u', 'delta_v', 'F', 'k', 'random_seed',
-                     'init_type', 'dt', 'snap_dt', 'tend']
-    missing = [col for col in required_cols if col not in df.columns or df[col].isnull().any()]
+    required_cols = [
+        "delta_u",
+        "delta_v",
+        "F",
+        "k",
+        "random_seed",
+        "init_type",
+        "dt",
+        "snap_dt",
+        "tend",
+    ]
+    missing = [
+        col for col in required_cols if col not in df.columns or df[col].isnull().any()
+    ]
     if missing:
         raise ValueError(f"Missing required parameters: {missing}")
 
     # Check valid init types
-    valid_init_types = ['gaussians', 'fourier']
-    invalid_init = df[~df['init_type'].isin(valid_init_types)]['init_type'].unique()
+    valid_init_types = ["gaussians", "fourier"]
+    invalid_init = df[~df["init_type"].isin(valid_init_types)]["init_type"].unique()
     if len(invalid_init) > 0:
-        raise ValueError(f"Invalid init_type: {invalid_init}. Valid: {valid_init_types}")
+        raise ValueError(
+            f"Invalid init_type: {invalid_init}. Valid: {valid_init_types}"
+        )
 
-    # Check positive parameters
-    for param in ['delta_u', 'delta_v', 'F', 'k', 'dt', 'snap_dt', 'tend']:
+    # Check non-negative parameters (can be zero)
+    for param in ["delta_u", "delta_v", "F", "k"]:
+        if (df[param] < 0).any():
+            raise ValueError(f"Parameter {param} must be non-negative")
+
+    # Check strictly positive parameters (cannot be zero)
+    for param in ["dt", "snap_dt", "tend"]:
         if (df[param] <= 0).any():
             raise ValueError(f"Parameter {param} must be positive")
 
     # Check random_seed is integer
-    if not all(df['random_seed'].apply(lambda x: float(x).is_integer())):
+    if not all(df["random_seed"].apply(lambda x: float(x).is_integer())):
         raise ValueError("random_seed must be integer values")
 
     # Check for duplicates
-    param_cols = [col for col in df.columns if col != 'job_id']
+    param_cols = [col for col in df.columns if col != "job_id"]
     duplicates = df[param_cols].duplicated().sum()
     if duplicates > 0:
         print(f"WARNING: Found {duplicates} duplicate parameter combinations")
@@ -175,14 +225,14 @@ def preview_grid(df, num_samples=10):
         df: DataFrame with parameter combinations
         num_samples: Number of sample rows to display
     """
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("Parameter Grid Preview")
-    print("="*70)
+    print("=" * 70)
     print(f"Total combinations: {len(df)}")
-    print(f"\nParameter ranges:")
+    print("\nParameter ranges:")
 
     for col in df.columns:
-        if col == 'job_id':
+        if col == "job_id":
             continue
         unique_vals = df[col].unique()
         if len(unique_vals) == 1:
@@ -198,67 +248,103 @@ def preview_grid(df, num_samples=10):
     if len(df) > num_samples:
         print(f"\n... ({len(df) - num_samples} more rows)")
 
-    print("="*70 + "\n")
+    print("=" * 70 + "\n")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Generate parameter grid for Gray-Scott simulations',
+        description="Generate parameter grid for Gray-Scott simulations",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # F×k grid with 20×20 combinations
-  %(prog)s --F 0.01:0.1:20 --k 0.05:0.065:20 -o params.csv
+  # F×k grid using step sizes
+  %(prog)s --F 0.01:0.1:0.005 --k 0.05:0.065:0.001 -o params.csv
 
-  # Logarithmic spacing
-  %(prog)s --F 0.001:0.1:20:log --k 0.05:0.065:10 -o params.csv
+  # Logarithmic spacing (uses number of points)
+  %(prog)s --F 0.001:0.1:20:log --k 0.05:0.065:0.001 -o params.csv
 
   # Multiple random seeds for statistics
-  %(prog)s --F 0.014:0.026:5 --k 0.051:0.057:5 --random-seed 1,2,3,4,5 -o params.csv
+  %(prog)s --F 0.014:0.026:0.004 --k 0.051:0.057:0.002 --random-seed 1,2,3,4,5 -o params.csv
 
-  # Sweep diffusion coefficients (delta_u × delta_v = 25 combinations)
-  %(prog)s --F 0.014 --k 0.054 --delta-u 0.00001:0.00005:5 --delta-v 0.000005:0.00002:5 -o params.csv
+  # Sweep diffusion coefficients
+  %(prog)s --F 0.014 --k 0.054 --delta-u 0.00001:0.00005:0.00001 --delta-v 0.000005:0.00002:0.000005 -o params.csv
 
-  # Multiple initialization types (2× multiplier on other params)
-  %(prog)s --F 0.01:0.1:10 --k 0.05:0.065:10 --init-type gaussians,fourier -o params.csv
+  # Multiple initialization types
+  %(prog)s --F 0.01:0.1:0.01 --k 0.05:0.065:0.0015 --init-type gaussians,fourier -o params.csv
 
   # Custom values (comma-separated)
   %(prog)s --F 0.014,0.018,0.022 --k 0.051,0.054,0.057 -o params.csv
 
 Range format:
-  start:stop:num       - Linear spacing (e.g., 0.01:0.1:10)
-  start:stop:num:log   - Logarithmic spacing (e.g., 0.001:0.1:10:log)
+  start:stop:step      - Linear spacing with step size (e.g., 0.01:0.1:0.005)
+  start:stop:num:log   - Logarithmic spacing with num points (e.g., 0.001:0.1:20:log)
   val1,val2,val3       - Custom list of values (numeric or string params)
-        """
+        """,
     )
 
     # Parameters that can vary
-    parser.add_argument('--delta-u', type=str, default='0.00002',
-                        help='Diffusion coefficient for u (default: 0.00002, format: start:stop:num or val1,val2,...)')
-    parser.add_argument('--delta-v', type=str, default='0.00001',
-                        help='Diffusion coefficient for v (default: 0.00001, format: start:stop:num or val1,val2,...)')
-    parser.add_argument('--F', type=str, required=True,
-                        help='Feed rate parameter (required, format: start:stop:num or val1,val2,...)')
-    parser.add_argument('--k', type=str, required=True,
-                        help='Kill rate parameter (required, format: start:stop:num or val1,val2,...)')
-    parser.add_argument('--random-seed', type=str, default='1',
-                        help='Random seed(s) (default: 1, format: val1,val2,... or start:stop:num)')
-    parser.add_argument('--init-type', type=str, default='gaussians',
-                        help='Initialization type: gaussians or fourier (default: gaussians, format: gaussians,fourier for both)')
-    parser.add_argument('--dt', type=str, default='1',
-                        help='Time step size (default: 1)')
-    parser.add_argument('--snap-dt', type=str, default='10',
-                        help='Snapshot interval (default: 10)')
-    parser.add_argument('--tend', type=str, default='10000',
-                        help='Final simulation time (default: 10000)')
+    parser.add_argument(
+        "--delta-u",
+        type=str,
+        default="0.00002",
+        help="Diffusion coefficient for u (default: 0.00002, format: start:stop:step or val1,val2,...)",
+    )
+    parser.add_argument(
+        "--delta-v",
+        type=str,
+        default="0.00001",
+        help="Diffusion coefficient for v (default: 0.00001, format: start:stop:step or val1,val2,...)",
+    )
+    parser.add_argument(
+        "--F",
+        type=str,
+        required=True,
+        help="Feed rate parameter (required, format: start:stop:step or val1,val2,...)",
+    )
+    parser.add_argument(
+        "--k",
+        type=str,
+        required=True,
+        help="Kill rate parameter (required, format: start:stop:step or val1,val2,...)",
+    )
+    parser.add_argument(
+        "--random-seed",
+        type=str,
+        default="1",
+        help="Random seed(s) (default: 1, format: val1,val2,... or start:stop:step)",
+    )
+    parser.add_argument(
+        "--init-type",
+        type=str,
+        default="gaussians",
+        help="Initialization type: gaussians or fourier (default: gaussians, format: gaussians,fourier for both)",
+    )
+    parser.add_argument(
+        "--dt", type=str, default="1", help="Time step size (default: 1)"
+    )
+    parser.add_argument(
+        "--snap-dt", type=str, default="10", help="Snapshot interval (default: 10)"
+    )
+    parser.add_argument(
+        "--tend",
+        type=str,
+        default="10000",
+        help="Final simulation time (default: 10000)",
+    )
 
     # Output options
-    parser.add_argument('-o', '--output', type=str, required=True,
-                        help='Output CSV file path')
-    parser.add_argument('--preview', type=int, default=10,
-                        help='Number of preview rows to display (default: 10, 0 to disable)')
-    parser.add_argument('--no-validate', action='store_true',
-                        help='Skip parameter validation')
+    parser.add_argument(
+        "-o", "--output", type=str, required=True, help="Output CSV file path"
+    )
+    parser.add_argument(
+        "--preview",
+        type=int,
+        default=10,
+        help="Number of preview rows to display (default: 10, 0 to disable)",
+    )
+    parser.add_argument(
+        "--no-validate", action="store_true", help="Skip parameter validation"
+    )
 
     args = parser.parse_args()
 
@@ -271,22 +357,24 @@ Range format:
         fixed_params = {}
 
         param_specs = {
-            'delta_u': args.delta_u,
-            'delta_v': args.delta_v,
-            'F': args.F,
-            'k': args.k,
-            'random_seed': args.random_seed,
-            'init_type': args.init_type,
-            'dt': args.dt,
-            'snap_dt': args.snap_dt,
-            'tend': args.tend
+            "delta_u": args.delta_u,
+            "delta_v": args.delta_v,
+            "F": args.F,
+            "k": args.k,
+            "random_seed": args.random_seed,
+            "init_type": args.init_type,
+            "dt": args.dt,
+            "snap_dt": args.snap_dt,
+            "tend": args.tend,
         }
 
         for param_name, param_spec in param_specs.items():
             # Special handling for string parameters
-            if param_name in ['init_type']:
-                if ',' in param_spec:
-                    sweep_params[param_name] = [x.strip() for x in param_spec.split(',')]
+            if param_name in ["init_type"]:
+                if "," in param_spec:
+                    sweep_params[param_name] = [
+                        x.strip() for x in param_spec.split(",")
+                    ]
                 else:
                     fixed_params[param_name] = param_spec
             else:
@@ -323,19 +411,19 @@ Range format:
         print(f"  Success! Wrote {len(df)} rows to {output_path}")
 
         # Print next steps
-        print("\n" + "="*70)
+        print("\n" + "=" * 70)
         print("Next steps:")
-        print("="*70)
-        print(f"1. Validate parameters:")
+        print("=" * 70)
+        print("1. Validate parameters:")
         print(f"   python validate_params.py {output_path}")
-        print(f"\n2. Submit SLURM array job:")
+        print("\n2. Submit SLURM array job:")
         print(f"   sbatch --array=1-{len(df)}%50 run_array_simulation.sh {output_path}")
-        print("="*70 + "\n")
+        print("=" * 70 + "\n")
 
     except Exception as e:
         print(f"\nERROR: {e}", file=sys.stderr)
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
