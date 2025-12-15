@@ -19,7 +19,7 @@
 #SBATCH --mem=5G
 
 ### Mail notification configuration
-#SBATCH --mail-type=ALL
+#SBATCH --mail-type=FAIL
 #SBATCH --mail-user=florian.wiesner@avt.rwth-aachen.de
 
 ### Maximum runtime per task
