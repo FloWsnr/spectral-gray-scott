@@ -43,7 +43,7 @@ conda activate base
 # Configuration
 # Use SLURM_SUBMIT_DIR (directory from which sbatch was called) for reliability
 # Falls back to current directory if not running under SLURM
-SCRIPT_DIR="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+SCRIPT_DIR="${SLURM_SUBMIT_DIR:-$(pwd)}"
 SNAPSHOT_DIR="${SCRIPT_DIR}/results/snapshots"
 LOG_DIR="${SCRIPT_DIR}/logs"
 
@@ -86,8 +86,8 @@ fi
 # Set F and k to desired values (examples: gliders F=0.014 k=0.054, bubbles F=0.012 k=0.050)
 DELTA_U=0.00002
 DELTA_V=0.00001
-F=0.037
-K=0.06
+F=0.014
+K=0.054
 RANDOM_SEED=1
 INIT_TYPE="gaussians"
 
