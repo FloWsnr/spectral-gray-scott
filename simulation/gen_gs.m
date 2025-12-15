@@ -160,21 +160,28 @@ try
         delete(h5file);
     end
 
+    % Convert to single precision (float32) to reduce file size
+    fprintf('Converting to single precision (float32)...\n');
+    u_data = single(u_data);
+    v_data = single(v_data);
+    x = single(x);
+    y = single(y);
+
     % Write u and v datasets
-    h5create(h5file, '/u', size(u_data));
+    h5create(h5file, '/u', size(u_data), 'Datatype', 'single');
     h5write(h5file, '/u', u_data);
-    h5create(h5file, '/v', size(v_data));
+    h5create(h5file, '/v', size(v_data), 'Datatype', 'single');
     h5write(h5file, '/v', v_data);
 
     % Write spatial grids (Chebyshev points)
-    h5create(h5file, '/x', size(x));
+    h5create(h5file, '/x', size(x), 'Datatype', 'single');
     h5write(h5file, '/x', x);
-    h5create(h5file, '/y', size(y));
+    h5create(h5file, '/y', size(y), 'Datatype', 'single');
     h5write(h5file, '/y', y);
 
     % Write time array
-    time_array = 0:snap_dt:tend;
-    h5create(h5file, '/time', size(time_array));
+    time_array = single(0:snap_dt:tend);
+    h5create(h5file, '/time', size(time_array), 'Datatype', 'single');
     h5write(h5file, '/time', time_array);
 
     % Prepare metadata
