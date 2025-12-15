@@ -14,10 +14,10 @@ Usage Examples:
     python generate_parameter_grid.py \\
         --F 0.001:0.1:20:log --k 0.05:0.065:0.001 -o params.csv
 
-    # Multiple random seeds
+    # Multiple random seeds (using range syntax)
     python generate_parameter_grid.py \\
         --F 0.01:0.1:0.01 --k 0.05:0.065:0.0015 \\
-        --random-seeds 1,2,3,4,5 -o params.csv
+        --random-seeds 1:50:1 -o params.csv
 
     # Sweep diffusion coefficients (delta_u × delta_v)
     python generate_parameter_grid.py \\
@@ -278,16 +278,12 @@ def validate_parameters(df):
             raise ValueError(f"Parameter {param} must be positive")
 
     # NEW: Validate random_seeds format
-    MAX_SEEDS_PER_JOB = 150
     for idx, seed_str in df["random_seeds"].items():
         try:
             seeds = [int(s.strip()) for s in str(seed_str).split(",")]
 
             if len(seeds) == 0:
                 raise ValueError(f"Row {idx+1}: Empty seed list")
-
-            if len(seeds) > MAX_SEEDS_PER_JOB:
-                raise ValueError(f"Row {idx+1}: Too many seeds ({len(seeds)}, max={MAX_SEEDS_PER_JOB})")
 
             if any(s < 0 for s in seeds):
                 raise ValueError(f"Row {idx+1}: Seeds must be non-negative")
@@ -353,8 +349,8 @@ Examples:
   # Logarithmic spacing (uses number of points)
   %(prog)s --F 0.001:0.1:20:log --k 0.05:0.065:0.001 -o params.csv
 
-  # Multiple random seeds for statistics
-  %(prog)s --F 0.014:0.026:0.004 --k 0.051:0.057:0.002 --random-seeds 1,2,3,4,5 -o params.csv
+  # Multiple random seeds for statistics (using range syntax)
+  %(prog)s --F 0.014:0.026:0.004 --k 0.051:0.057:0.002 --random-seeds 1:50:1 -o params.csv
 
   # Sweep diffusion coefficients
   %(prog)s --F 0.014 --k 0.054 --delta-u 0.00001:0.00005:0.00001 --delta-v 0.000005:0.00002:0.000005 -o params.csv
@@ -401,7 +397,7 @@ Range format:
         "--random-seeds",  # Changed to plural
         type=str,
         default="1",
-        help="Random seed(s) (comma-separated list, e.g., 1,2,3,...,100 - stored as list, not expanded)",
+        help="Random seed(s) (format: start:stop:step or val1,val2,... - all seeds stored in one job)",
     )
     parser.add_argument(
         "--init-type",
@@ -473,9 +469,12 @@ Range format:
                 else:
                     fixed_params[param_name] = param_spec
             elif param_name == "random_seeds":
-                # NEW: Store seed list as-is, don't expand into Cartesian product
-                # This prevents creating separate jobs for each seed
-                fixed_params[param_name] = param_spec
+                # Parse range specification and convert to comma-separated string
+                # This prevents expanding into Cartesian product (all seeds go in one job)
+                seed_values = parse_range(param_spec)
+                # Convert to integers and format as comma-separated string
+                seed_list = [str(int(s)) for s in seed_values]
+                fixed_params[param_name] = ",".join(seed_list)
             else:
                 values = parse_range(param_spec)
                 if len(values) > 1:

@@ -13,20 +13,20 @@
 #SBATCH --nodes=1
 
 ### How many CPU cores to use
-#SBATCH --ntasks-per-node=1
+#SBATCH --ntasks-per-node=4
 
 ### How much memory in total (MB)
-#SBATCH --mem=16G  # Increased from 5G for multi-seed support (100 seeds)
+##SBATCH --mem=2G  # Increased from 5G for multi-seed support (100 seeds)
 
 ### Mail notification configuration
 #SBATCH --mail-type=FAIL
 #SBATCH --mail-user=florian.wiesner@avt.rwth-aachen.de
 
 ### Maximum runtime per task
-#SBATCH --time=16:00:00  # Increased from 00:10:00 for multi-seed support (16 hours)
+#SBATCH --time=01:00:00  # Increased from 00:10:00 for multi-seed support (16 hours)
 
 ### Partition
-#SBATCH --partition=standard
+#SBATCH --partition=c23ms
 
 ### Array job directive (set this when submitting via command line)
 ### Example: sbatch --array=1-1000%50 run_array_simulation.sh params.csv
@@ -66,12 +66,19 @@ if [ "${SLURM_ARRAY_TASK_ID}" -gt "${NUM_PARAMS}" ]; then
     exit 1
 fi
 
-# Read parameters for this job (add 1 to line number to skip header)
-LINE_NUM=$((SLURM_ARRAY_TASK_ID + 1))
-PARAMS=$(sed -n "${LINE_NUM}p" "${PARAM_FILE}")
-
-# Parse CSV fields (job_id,delta_u,delta_v,F,k,random_seeds,init_type,dt,snap_dt,tend)
-IFS=',' read -r JOB_ID DELTA_U DELTA_V F K RANDOM_SEEDS INIT_TYPE DT SNAP_DT TEND <<< "${PARAMS}"
+# Read parameters for this job using Python to handle CSV quoting properly
+# Python respects quoted fields, unlike simple bash IFS=',' parsing
+read JOB_ID DELTA_U DELTA_V F K RANDOM_SEEDS INIT_TYPE DT SNAP_DT TEND <<< $(python3 -c "
+import csv
+import sys
+with open('${PARAM_FILE}', 'r') as f:
+    reader = csv.DictReader(f)
+    for i, row in enumerate(reader, start=1):
+        if i == ${SLURM_ARRAY_TASK_ID}:
+            print(row['job_id'], row['delta_u'], row['delta_v'], row['F'], row['k'],
+                  row['random_seeds'], row['init_type'], row['dt'], row['snap_dt'], row['tend'])
+            break
+")
 
 # Parse comma-separated seeds into MATLAB array format
 # Input:  "1,2,3,4,5" or "1" (CSV may have quotes or not)
@@ -120,7 +127,7 @@ mkdir -p "${MATLAB_TMPDIR}"
 module load MATLAB/2025a
 
 # MATLAB executable with proper HPC flags
-MATLAB_CMD="matlab -singleCompThread -nodisplay -nodesktop -nosplash"
+MATLAB_CMD="matlab -nodisplay -nodesktop -nosplash"
 
 # Print banner
 echo "========================================"

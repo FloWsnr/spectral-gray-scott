@@ -88,7 +88,7 @@ DELTA_U=0.00002
 DELTA_V=0.00001
 F=0.078
 K=0.061
-RANDOM_SEED="[1,2]"
+RANDOM_SEED="[1,2,3]"  # Use multiple seeds for ensemble runs
 INIT_TYPE="gaussians"
 
 # Time step parameters

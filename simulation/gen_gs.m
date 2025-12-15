@@ -97,40 +97,44 @@ fprintf('This may take a while (simulating %.0f time units × %d seeds)...\n', t
 fprintf('Start time: %s\n', datestr(now, 'yyyy-mm-dd HH:MM:SS'));
 fprintf('========================================\n\n');
 
-try
-    tic;
+tic;
 
-    % Pre-allocate arrays after first simulation
-    u_all = [];
-    v_all = [];
-    first_run = true;
+% Pre-allocate arrays after first simulation
+u_all = [];
+v_all = [];
+first_run = true;
 
-    % Loop over random seeds
-    for seed_idx = 1:n_seeds
-        current_seed = random_seeds(seed_idx);
-        fprintf('\n----------------------------------------\n');
-        fprintf('Trajectory %d/%d (seed=%d)\n', seed_idx, n_seeds, current_seed);
-        fprintf('----------------------------------------\n');
+% Track successful simulations
+successful_indices = [];
+failed_seeds = [];
 
-        % Set random seed for this trajectory
-        rng(current_seed);
+% Loop over random seeds
+for seed_idx = 1:n_seeds
+    current_seed = random_seeds(seed_idx);
+    fprintf('\n----------------------------------------\n');
+    fprintf('Trajectory %d/%d (seed=%d)\n', seed_idx, n_seeds, current_seed);
+    fprintf('----------------------------------------\n');
 
-        % Re-initialize S.init for this seed
-        if strcmp(init_type, 'gaussians')
-            uinit = random_gaussians(ngauss, amp, width, dom);
-            uinit = @(x,y) 1-uinit(x,y);
-            vinit = random_gaussians(ngauss, amp, width, dom);
-            uinit = chebfun2(uinit, dom, 'trig');
-            vinit = chebfun2(vinit, dom, 'trig');
-            uinit = normalize(uinit);
-            vinit = normalize(vinit);
-            S.init = chebfun2v(uinit, vinit, dom);
-        else
-            [uinit, vinit] = init_fourier(F, k, nfourier, dom);
-            S.init = chebfun2v(uinit, vinit, dom);
-        end
+    % Set random seed for this trajectory
+    rng(current_seed);
 
-        % Run simulation
+    % Re-initialize S.init for this seed
+    if strcmp(init_type, 'gaussians')
+        uinit = random_gaussians(ngauss, amp, width, dom);
+        uinit = @(x,y) 1-uinit(x,y);
+        vinit = random_gaussians(ngauss, amp, width, dom);
+        uinit = chebfun2(uinit, dom, 'trig');
+        vinit = chebfun2(vinit, dom, 'trig');
+        uinit = normalize(uinit);
+        vinit = normalize(vinit);
+        S.init = chebfun2v(uinit, vinit, dom);
+    else
+        [uinit, vinit] = init_fourier(F, k, nfourier, dom);
+        S.init = chebfun2v(uinit, vinit, dom);
+    end
+
+    % Run simulation with error handling
+    try
         fprintf('Running ETDRK4 integration...\n');
         sim_start = tic;
         uv = spin2(S, n, dt, pref);
@@ -164,152 +168,189 @@ try
                 fprintf('  Seed %d: Processed snapshot %d/%d\n', current_seed, ik, num_snapshots);
             end
         end
-    end
 
-    total_elapsed = toc;
-    fprintf('\n========================================\n');
-    fprintf('All %d simulations complete!\n', n_seeds);
-    fprintf('Total elapsed time: %.2f seconds (%.2f minutes)\n', total_elapsed, total_elapsed/60);
-    fprintf('Average time per trajectory: %.2f seconds\n', total_elapsed/n_seeds);
-    fprintf('========================================\n');
+        % Mark this simulation as successful
+        successful_indices(end+1) = seed_idx;
 
-    % Create subfolder based on parameters only (excluding random seeds)
-    subfolder = sprintf('results/snapshots/F%.3f_k%.3f_du%.1e_dv%.1e_%s', ...
-                        F, k, delta_u, delta_v, init_type);
-
-    if ~exist(subfolder, 'dir')
-        mkdir(subfolder);
-    end
-
-    % Save to HDF5 file
-    h5file = fullfile(subfolder, 'data.h5');
-    fprintf('Writing to HDF5 file: %s\n', h5file);
-
-    % Delete existing HDF5 file if it exists
-    if exist(h5file, 'file')
-        delete(h5file);
-    end
-
-    % Permute dimensions: [n_seeds, n, n, num_snapshots] → [n, n, num_snapshots, n_seeds]
-    % MATLAB writes in column-major, so Python will read the reversed shape:
-    % Python reads: [n_seeds, num_snapshots, n, n] = [n_trajectories, n_time, x, y]
-    fprintf('Permuting dimensions for HDF5 output...\n');
-    u_out = permute(u_all, [2, 3, 4, 1]);
-    v_out = permute(v_all, [2, 3, 4, 1]);
-
-    fprintf('  MATLAB shape: [%d, %d, %d, %d] (will be reversed in Python)\n', size(u_out));
-    fprintf('  Python will read: [n_trajectories=%d, n_time=%d, x=%d, y=%d]\n', n_seeds, num_snapshots, n, n);
-
-    % Convert spatial grids to single precision
-    x = single(x);
-    y = single(y);
-
-    % Write with compression (deflate level 5)
-    % ChunkSize matches MATLAB shape [n, n, num_snapshots, 1] to chunk by trajectory
-    fprintf('Writing datasets with compression...\n');
-    h5create(h5file, '/u', size(u_out), 'Datatype', 'single', ...
-             'ChunkSize', [n, n, num_snapshots, 1], 'Deflate', 5);
-    h5write(h5file, '/u', u_out);
-
-    h5create(h5file, '/v', size(v_out), 'Datatype', 'single', ...
-             'ChunkSize', [n, n, num_snapshots, 1], 'Deflate', 5);
-    h5write(h5file, '/v', v_out);
-
-    % Write spatial grids
-    h5create(h5file, '/x', size(x), 'Datatype', 'single');
-    h5write(h5file, '/x', x);
-    h5create(h5file, '/y', size(y), 'Datatype', 'single');
-    h5write(h5file, '/y', y);
-
-    % Write time array
-    time_array = single(0:snap_dt:tend);
-    h5create(h5file, '/time', size(time_array), 'Datatype', 'single');
-    h5write(h5file, '/time', time_array);
-
-    % Write random_seeds as dataset (cannot use attributes for arrays in old MATLAB)
-    h5create(h5file, '/random_seeds', size(random_seeds), 'Datatype', 'int32');
-    h5write(h5file, '/random_seeds', int32(random_seeds));
-
-    fprintf('HDF5 write complete.\n');
-
-    % Prepare metadata
-    metadata.F = F;
-    metadata.k = k;
-    metadata.delta_u = delta_u;
-    metadata.delta_v = delta_v;
-    metadata.initialization = init_type;
-    metadata.random_seeds = random_seeds;     % Changed: now array
-    metadata.n_trajectories = n_seeds;        % NEW field
-    metadata.domain = dom;
-    metadata.grid_size = n;
-    metadata.time_step = dt;
-    metadata.snapshot_interval = snap_dt;
-    metadata.final_time = tend;
-    metadata.scheme = pref.scheme;
-    metadata.dealias = pref.dealias;
-    metadata.num_snapshots = num_snapshots;
-
-    % Add initialization-specific metadata
-    if exist('metadata_extra', 'var')
-        fields = fieldnames(metadata_extra);
-        for i = 1:length(fields)
-            metadata.(fields{i}) = metadata_extra.(fields{i});
+    catch ME
+        fprintf('\n========================================\n');
+        fprintf('ERROR: Simulation Failed for seed %d!\n', current_seed);
+        fprintf('========================================\n');
+        fprintf('Error message: %s\n', ME.message);
+        fprintf('Error ID:      %s\n', ME.identifier);
+        if ~isempty(ME.stack)
+            fprintf('Error in:      %s (line %d)\n', ME.stack(1).name, ME.stack(1).line);
         end
+        fprintf('========================================\n');
+        fprintf('This may indicate that the solution became unstable.\n');
+        fprintf('Continuing with remaining seeds...\n');
+        fprintf('========================================\n');
+        warning('Seed %d failed: %s', current_seed, ME.message);
+
+        % Track failed seed
+        failed_seeds(end+1) = current_seed;
     end
-
-    % Write metadata as HDF5 attributes
-    h5writeatt(h5file, '/', 'F', F);
-    h5writeatt(h5file, '/', 'k', k);
-    h5writeatt(h5file, '/', 'delta_u', delta_u);
-    h5writeatt(h5file, '/', 'delta_v', delta_v);
-    h5writeatt(h5file, '/', 'initialization', init_type);
-    h5writeatt(h5file, '/', 'n_trajectories', n_seeds);  % NEW
-    h5writeatt(h5file, '/', 'num_snapshots', num_snapshots);
-    h5writeatt(h5file, '/', 'grid_size_x', n);
-    h5writeatt(h5file, '/', 'grid_size_y', n);
-    h5writeatt(h5file, '/', 'domain', dom);
-    h5writeatt(h5file, '/', 'time_step', dt);
-    h5writeatt(h5file, '/', 'snapshot_interval', snap_dt);
-    h5writeatt(h5file, '/', 'final_time', tend);
-    h5writeatt(h5file, '/', 'scheme', pref.scheme);
-    h5writeatt(h5file, '/', 'dealias', pref.dealias);
-    % Note: random_seeds array written as dataset (see above)
-
-    % Save metadata as JSON (for compatibility)
-    jsonfile = fullfile(subfolder, 'metadata.json');
-    fid = fopen(jsonfile, 'w');
-    fprintf(fid, '%s', jsonencode(metadata));
-    fclose(fid);
-
-    fprintf('\n========================================\n');
-    fprintf('All Simulations Complete!\n');
-    fprintf('========================================\n');
-    fprintf('End time:       %s\n', datestr(now, 'yyyy-mm-dd HH:MM:SS'));
-    fprintf('Elapsed time:   %.2f seconds (%.2f minutes)\n', total_elapsed, total_elapsed/60);
-    fprintf('Trajectories:   %d\n', n_seeds);
-    fprintf('Saved to:       %s\n', subfolder);
-    fprintf('Files created:\n');
-    fprintf('  - data.h5 (HDF5 format with field values)\n');
-    fprintf('    Datasets: /u [%d×%d×%d×%d], /v [%d×%d×%d×%d]\n', ...
-            n_seeds, num_snapshots, n, n, n_seeds, num_snapshots, n, n);
-    fprintf('    Dimensions: [n_trajectories, n_time, x, y]\n');
-    fprintf('    Compression: Deflate level 5\n');
-    fprintf('  - metadata.json (JSON format)\n');
-    fprintf('========================================\n');
-catch ME
-    fprintf('\n========================================\n');
-    fprintf('ERROR: Simulation Failed!\n');
-    fprintf('========================================\n');
-    fprintf('Error message: %s\n', ME.message);
-    fprintf('Error ID:      %s\n', ME.identifier);
-    if ~isempty(ME.stack)
-        fprintf('Error in:      %s (line %d)\n', ME.stack(1).name, ME.stack(1).line);
-    end
-    fprintf('========================================\n');
-    fprintf('This may indicate that the solution became unstable.\n');
-    fprintf('Try adjusting parameters (dt, F, k) or initialization.\n');
-    fprintf('========================================\n');
-    warning('Solution blew up or error occurred: %s', ME.message);
 end
+
+total_elapsed = toc;
+
+% Filter out failed trajectories
+n_successful = length(successful_indices);
+n_failed = length(failed_seeds);
+
+fprintf('\n========================================\n');
+fprintf('Simulation Summary\n');
+fprintf('========================================\n');
+fprintf('Total seeds attempted: %d\n', n_seeds);
+fprintf('Successful:            %d\n', n_successful);
+fprintf('Failed:                %d\n', n_failed);
+if n_failed > 0
+    fprintf('Failed seed IDs:       %s\n', mat2str(failed_seeds));
+end
+fprintf('Total elapsed time:    %.2f seconds (%.2f minutes)\n', total_elapsed, total_elapsed/60);
+if n_successful > 0
+    fprintf('Average time per trajectory: %.2f seconds\n', total_elapsed/n_successful);
+end
+fprintf('========================================\n');
+
+% Exit if no successful simulations
+if n_successful == 0
+    error('All simulations failed! No data to save.');
+end
+
+% Keep only successful trajectories
+if n_failed > 0
+    fprintf('\nRemoving %d failed trajectories from data...\n', n_failed);
+    u_all = u_all(successful_indices, :, :, :);
+    v_all = v_all(successful_indices, :, :, :);
+    random_seeds = random_seeds(successful_indices);
+    n_seeds = n_successful;  % Update count
+    fprintf('Final data shape: [%d successful trajectories × %d × %d × %d]\n', ...
+            n_seeds, n, n, num_snapshots);
+end
+
+% Create subfolder based on parameters only (excluding random seeds)
+subfolder = sprintf('results/snapshots/F%.3f_k%.3f_du%.1e_dv%.1e_%s', ...
+                    F, k, delta_u, delta_v, init_type);
+
+if ~exist(subfolder, 'dir')
+    mkdir(subfolder);
+end
+
+% Save to HDF5 file
+h5file = fullfile(subfolder, 'data.h5');
+fprintf('Writing to HDF5 file: %s\n', h5file);
+
+% Delete existing HDF5 file if it exists
+if exist(h5file, 'file')
+    delete(h5file);
+end
+
+% Permute dimensions: [n_seeds, n, n, num_snapshots] → [n, n, num_snapshots, n_seeds]
+% MATLAB writes in column-major, so Python will read the reversed shape:
+% Python reads: [n_seeds, num_snapshots, n, n] = [n_trajectories, n_time, x, y]
+fprintf('Permuting dimensions for HDF5 output...\n');
+u_out = permute(u_all, [2, 3, 4, 1]);
+v_out = permute(v_all, [2, 3, 4, 1]);
+
+fprintf('  MATLAB shape: [%d, %d, %d, %d] (will be reversed in Python)\n', size(u_out));
+fprintf('  Python will read: [n_trajectories=%d, n_time=%d, x=%d, y=%d]\n', n_seeds, num_snapshots, n, n);
+
+% Convert spatial grids to single precision
+x = single(x);
+y = single(y);
+
+% Write with compression (deflate level 5)
+% ChunkSize matches MATLAB shape [n, n, num_snapshots, 1] to chunk by trajectory
+fprintf('Writing datasets with compression...\n');
+h5create(h5file, '/u', size(u_out), 'Datatype', 'single', ...
+         'ChunkSize', [n, n, num_snapshots, 1], 'Deflate', 5);
+h5write(h5file, '/u', u_out);
+
+h5create(h5file, '/v', size(v_out), 'Datatype', 'single', ...
+         'ChunkSize', [n, n, num_snapshots, 1], 'Deflate', 5);
+h5write(h5file, '/v', v_out);
+
+% Write spatial grids
+h5create(h5file, '/x', size(x), 'Datatype', 'single');
+h5write(h5file, '/x', x);
+h5create(h5file, '/y', size(y), 'Datatype', 'single');
+h5write(h5file, '/y', y);
+
+% Write time array
+time_array = single(0:snap_dt:tend);
+h5create(h5file, '/time', size(time_array), 'Datatype', 'single');
+h5write(h5file, '/time', time_array);
+
+% Write random_seeds as dataset (cannot use attributes for arrays in old MATLAB)
+h5create(h5file, '/random_seeds', size(random_seeds), 'Datatype', 'int32');
+h5write(h5file, '/random_seeds', int32(random_seeds));
+
+fprintf('HDF5 write complete.\n');
+
+% Prepare metadata
+metadata.F = F;
+metadata.k = k;
+metadata.delta_u = delta_u;
+metadata.delta_v = delta_v;
+metadata.initialization = init_type;
+metadata.random_seeds = random_seeds;     % Changed: now array
+metadata.n_trajectories = n_seeds;        % NEW field
+metadata.domain = dom;
+metadata.grid_size = n;
+metadata.time_step = dt;
+metadata.snapshot_interval = snap_dt;
+metadata.final_time = tend;
+metadata.scheme = pref.scheme;
+metadata.dealias = pref.dealias;
+metadata.num_snapshots = num_snapshots;
+
+% Add initialization-specific metadata
+if exist('metadata_extra', 'var')
+    fields = fieldnames(metadata_extra);
+    for i = 1:length(fields)
+        metadata.(fields{i}) = metadata_extra.(fields{i});
+    end
+end
+
+% Write metadata as HDF5 attributes
+h5writeatt(h5file, '/', 'F', F);
+h5writeatt(h5file, '/', 'k', k);
+h5writeatt(h5file, '/', 'delta_u', delta_u);
+h5writeatt(h5file, '/', 'delta_v', delta_v);
+h5writeatt(h5file, '/', 'initialization', init_type);
+h5writeatt(h5file, '/', 'n_trajectories', n_seeds);  % NEW
+h5writeatt(h5file, '/', 'num_snapshots', num_snapshots);
+h5writeatt(h5file, '/', 'grid_size_x', n);
+h5writeatt(h5file, '/', 'grid_size_y', n);
+h5writeatt(h5file, '/', 'domain', dom);
+h5writeatt(h5file, '/', 'time_step', dt);
+h5writeatt(h5file, '/', 'snapshot_interval', snap_dt);
+h5writeatt(h5file, '/', 'final_time', tend);
+h5writeatt(h5file, '/', 'scheme', pref.scheme);
+h5writeatt(h5file, '/', 'dealias', pref.dealias);
+% Note: random_seeds array written as dataset (see above)
+
+% Save metadata as JSON (for compatibility)
+jsonfile = fullfile(subfolder, 'metadata.json');
+fid = fopen(jsonfile, 'w');
+fprintf(fid, '%s', jsonencode(metadata));
+fclose(fid);
+
+fprintf('\n========================================\n');
+fprintf('All Simulations Complete!\n');
+fprintf('========================================\n');
+fprintf('End time:       %s\n', datestr(now, 'yyyy-mm-dd HH:MM:SS'));
+fprintf('Elapsed time:   %.2f seconds (%.2f minutes)\n', total_elapsed, total_elapsed/60);
+fprintf('Trajectories:   %d\n', n_seeds);
+fprintf('Saved to:       %s\n', subfolder);
+fprintf('Files created:\n');
+fprintf('  - data.h5 (HDF5 format with field values)\n');
+fprintf('    Datasets: /u [%d×%d×%d×%d], /v [%d×%d×%d×%d]\n', ...
+        n_seeds, num_snapshots, n, n, n_seeds, num_snapshots, n, n);
+fprintf('    Dimensions: [n_trajectories, n_time, x, y]\n');
+fprintf('    Compression: Deflate level 5\n');
+fprintf('  - metadata.json (JSON format)\n');
+fprintf('========================================\n');
 
 end
