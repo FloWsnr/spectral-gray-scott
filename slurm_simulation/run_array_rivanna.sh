@@ -13,17 +13,17 @@
 #SBATCH --nodes=1
 
 ### How many CPU cores to use
-#SBATCH --ntasks-per-node=4
+#SBATCH --ntasks-per-node=2
 
 ### How much memory in total (MB)
-#SBATCH --mem=10G  # Increased from 5G for multi-seed support (100 seeds)
+#SBATCH --mem=5G  # Increased from 5G for multi-seed support (100 seeds)
 
 ### Mail notification configuration
 #SBATCH --mail-type=FAIL
 #SBATCH --mail-user=florian.wiesner@avt.rwth-aachen.de
 
 ### Maximum runtime per task
-#SBATCH --time=01:00:00  # Increased from 00:10:00 for multi-seed support (16 hours)
+#SBATCH --time=00:10:00  # Increased from 00:10:00 for multi-seed support (16 hours)
 
 ### Partition
 #SBATCH --partition=standard
@@ -120,11 +120,11 @@ STATUS_DIR="${SCRIPT_DIR}/results/job_status"
 
 # Configure MATLAB temp directory to use HPC work directory
 # (prevents filling up small SSDs with large temporary files)
-export MATLAB_TMPDIR="${HPCWORK}/matlab_tmp"
+export MATLAB_TMPDIR="/scratch/zsa8rk/matlab_tmp"
 mkdir -p "${MATLAB_TMPDIR}"
 
 # Load MATLAB module
-module load MATLAB/2025a
+module load matlab/R2025a
 
 # MATLAB executable with proper HPC flags
 MATLAB_CMD="matlab -nodisplay -nodesktop -nosplash"

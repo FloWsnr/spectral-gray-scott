@@ -32,7 +32,7 @@
 set -e  # Exit on error
 
 # Load MATLAB module
-module load MATLAB/2025a
+module load matlab/R2025a
 
 # activate conda environment
 export CONDA_ROOT=$HOME/miniforge3
@@ -43,13 +43,13 @@ conda activate base
 # Configuration
 # Use SLURM_SUBMIT_DIR (directory from which sbatch was called) for reliability
 # Falls back to current directory if not running under SLURM
-SCRIPT_DIR="${SLURM_SUBMIT_DIR:-$(pwd)}"
+SCRIPT_DIR="/scratch/zsa8rk/spectral-gray-scott"
 SNAPSHOT_DIR="${SCRIPT_DIR}/results/snapshots"
 LOG_DIR="${SCRIPT_DIR}/logs"
 
 # Configure MATLAB temp directory to use HPC work directory
 # (prevents filling up small SSDs with large temporary files)
-export MATLAB_TMPDIR="${HPCWORK}/matlab_tmp"
+export MATLAB_TMPDIR="/scratch/zsa8rk/matlab_tmp"
 mkdir -p "${MATLAB_TMPDIR}"
 
 # MATLAB executable with proper HPC flags
@@ -88,7 +88,7 @@ DELTA_U=0.00002
 DELTA_V=0.00001
 F=0.078
 K=0.061
-RANDOM_SEED="[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]"  # Use multiple seeds for ensemble runs
+RANDOM_SEED="[1,2]"  # Use multiple seeds for ensemble runs
 INIT_TYPE="gaussians"
 
 # Time step parameters
@@ -110,7 +110,7 @@ echo "  Final Time:   ${TEND}"
 echo "========================================"
 
 # Log file
-LOG_FILE="${LOG_DIR}/F${F}_k${K}_${INIT_TYPE}_${RANDOM_SEED}_$(date +%Y%m%d_%H%M%S).log"
+LOG_FILE="${LOG_DIR}/F${F}_k${K}_${INIT_TYPE}_$(date +%Y%m%d_%H%M%S).log"
 
 # Run MATLAB simulation
 echo "Starting simulation (log: ${LOG_FILE})"
