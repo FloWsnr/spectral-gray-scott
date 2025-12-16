@@ -97,7 +97,7 @@ fprintf('This may take a while (simulating %.0f time units × %d seeds)...\n', t
 fprintf('Start time: %s\n', datestr(now, 'yyyy-mm-dd HH:MM:SS'));
 fprintf('========================================\n\n');
 
-tic;
+total_start = tic;
 
 % Pre-allocate arrays after first simulation
 uv_all = [];
@@ -190,7 +190,7 @@ for seed_idx = 1:n_seeds
     end
 end
 
-total_elapsed = toc;
+total_elapsed = toc(total_start);
 
 % Filter out failed trajectories
 n_successful = length(successful_indices);
