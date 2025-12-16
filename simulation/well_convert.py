@@ -34,8 +34,8 @@ def create_hdf5_dataset(sim_dir: Path, output_dir: Optional[Path] = None) -> Pat
     sim_params = ["F", "k", "delta_u", "delta_v"]
 
     # Extract u and v fields from the combined uv array
-    u_data = org_data[..., 0]  # shape: [n_trajectories, n_time, x, y]
-    v_data = org_data[..., 1]  # shape: [n_trajectories, n_time, x, y]
+    u_data = org_data[..., 0].astype(np.float32)  # shape: [n_trajectories, n_time, x, y]
+    v_data = org_data[..., 1].astype(np.float32)  # shape: [n_trajectories, n_time, x, y]
 
     with h5py.File(filename, "w") as f:
         # Root attributes
