@@ -100,8 +100,7 @@ fprintf('========================================\n\n');
 tic;
 
 % Pre-allocate arrays after first simulation
-u_all = [];
-v_all = [];
+uv_all = [];
 first_run = true;
 
 % Track successful simulations
@@ -146,10 +145,9 @@ for seed_idx = 1:n_seeds
 
         % Allocate storage on first iteration
         if first_run
-            fprintf('Allocating storage for [%d seeds × %d snapshots × %d × %d]...\n', ...
+            fprintf('Allocating storage for [%d seeds × %d snapshots × %d × %d × 2 channels]...\n', ...
                     n_seeds, num_snapshots, n, n);
-            u_all = zeros(n_seeds, n, n, num_snapshots, 'single');
-            v_all = zeros(n_seeds, n, n, num_snapshots, 'single');
+            uv_all = zeros(n_seeds, n, n, num_snapshots, 2, 'single');
             first_run = false;
 
             % Set up grid for evaluation
@@ -161,8 +159,8 @@ for seed_idx = 1:n_seeds
         % Extract chebfun2 values to array
         fprintf('Extracting chebfun2 values...\n');
         for ik = 1:num_snapshots
-            u_all(seed_idx, :, :, ik) = single(real(uv{1, ik}(XX, YY)));
-            v_all(seed_idx, :, :, ik) = single(real(uv{2, ik}(XX, YY)));
+            uv_all(seed_idx, :, :, ik, 1) = single(real(uv{1, ik}(XX, YY)));
+            uv_all(seed_idx, :, :, ik, 2) = single(real(uv{2, ik}(XX, YY)));
 
             if mod(ik, 200) == 0 || ik == num_snapshots
                 fprintf('  Seed %d: Processed snapshot %d/%d\n', current_seed, ik, num_snapshots);
@@ -221,11 +219,10 @@ end
 % Keep only successful trajectories
 if n_failed > 0
     fprintf('\nRemoving %d failed trajectories from data...\n', n_failed);
-    u_all = u_all(successful_indices, :, :, :);
-    v_all = v_all(successful_indices, :, :, :);
+    uv_all = uv_all(successful_indices, :, :, :, :);
     random_seeds = random_seeds(successful_indices);
     n_seeds = n_successful;  % Update count
-    fprintf('Final data shape: [%d successful trajectories × %d × %d × %d]\n', ...
+    fprintf('Final data shape: [%d successful trajectories × %d × %d × %d × 2]\n', ...
             n_seeds, n, n, num_snapshots);
 end
 
@@ -246,30 +243,25 @@ if exist(h5file, 'file')
     delete(h5file);
 end
 
-% Permute dimensions: [n_seeds, n, n, num_snapshots] → [n, n, num_snapshots, n_seeds]
+% Permute dimensions: [n_seeds, n, n, num_snapshots, 2] → [2, n, n, num_snapshots, n_seeds]
 % MATLAB writes in column-major, so Python will read the reversed shape:
-% Python reads: [n_seeds, num_snapshots, n, n] = [n_trajectories, n_time, x, y]
+% Python reads: [n_seeds, num_snapshots, n, n, 2] = [n_trajectories, n_time, x, y, channels]
 fprintf('Permuting dimensions for HDF5 output...\n');
-u_out = permute(u_all, [2, 3, 4, 1]);
-v_out = permute(v_all, [2, 3, 4, 1]);
+uv_out = permute(uv_all, [5, 2, 3, 4, 1]);
 
-fprintf('  MATLAB shape: [%d, %d, %d, %d] (will be reversed in Python)\n', size(u_out));
-fprintf('  Python will read: [n_trajectories=%d, n_time=%d, x=%d, y=%d]\n', n_seeds, num_snapshots, n, n);
+fprintf('  MATLAB shape: [%d, %d, %d, %d, %d] (will be reversed in Python)\n', size(uv_out));
+fprintf('  Python will read: [n_trajectories=%d, n_time=%d, x=%d, y=%d, channels=%d]\n', n_seeds, num_snapshots, n, n, 2);
 
 % Convert spatial grids to single precision
 x = single(x);
 y = single(y);
 
 % Write with compression (deflate level 5)
-% ChunkSize matches MATLAB shape [n, n, num_snapshots, 1] to chunk by trajectory
+% ChunkSize matches MATLAB shape [2, n, n, num_snapshots, 1] to chunk by trajectory
 fprintf('Writing datasets with compression...\n');
-h5create(h5file, '/u', size(u_out), 'Datatype', 'single', ...
-         'ChunkSize', [n, n, num_snapshots, 1], 'Deflate', 5);
-h5write(h5file, '/u', u_out);
-
-h5create(h5file, '/v', size(v_out), 'Datatype', 'single', ...
-         'ChunkSize', [n, n, num_snapshots, 1], 'Deflate', 5);
-h5write(h5file, '/v', v_out);
+h5create(h5file, '/uv', size(uv_out), 'Datatype', 'single', ...
+         'ChunkSize', [2, n, n, num_snapshots, 1], 'Deflate', 5);
+h5write(h5file, '/uv', uv_out);
 
 % Write spatial grids
 h5create(h5file, '/x', size(x), 'Datatype', 'single');
@@ -346,9 +338,9 @@ fprintf('Trajectories:   %d\n', n_seeds);
 fprintf('Saved to:       %s\n', subfolder);
 fprintf('Files created:\n');
 fprintf('  - data.h5 (HDF5 format with field values)\n');
-fprintf('    Datasets: /u [%d×%d×%d×%d], /v [%d×%d×%d×%d]\n', ...
-        n_seeds, num_snapshots, n, n, n_seeds, num_snapshots, n, n);
-fprintf('    Dimensions: [n_trajectories, n_time, x, y]\n');
+fprintf('    Dataset: /uv [%d×%d×%d×%d×%d]\n', n_seeds, num_snapshots, n, n, 2);
+fprintf('    Dimensions: [n_trajectories, n_time, x, y, channels]\n');
+fprintf('    Channels: 0=u, 1=v\n');
 fprintf('    Compression: Deflate level 5\n');
 fprintf('  - metadata.json (JSON format)\n');
 fprintf('========================================\n');

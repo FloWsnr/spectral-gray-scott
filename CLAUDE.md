@@ -26,7 +26,7 @@ The codebase uses **MATLAB** for simulations (spectral methods via Chebfun) and 
 Output structure:
 - `results/snapshots/F{F}_k{k}_du{delta_u}_dv{delta_v}_{init_type}/data.h5`
 
-Directories are named based on simulation parameters only (F, k, delta_u, delta_v, initialization type), excluding random seeds. Multiple trajectories with different random seeds but identical parameters are stored together in a single HDF5 file with shape `[n_trajectories, n_time, x, y]`.
+Directories are named based on simulation parameters only (F, k, delta_u, delta_v, initialization type), excluding random seeds. Multiple trajectories with different random seeds but identical parameters are stored together in a single HDF5 file with shape `[n_trajectories, n_time, x, y, channels]`.
 
 ## Development Commands
 
@@ -101,13 +101,28 @@ The `run_array_simulation.sh` script expects:
 ### HDF5 Structure
 
 Datasets in `data.h5`:
-- `/u` and `/v`: shape `[n_seeds, num_snapshots, 128, 128]` - Concentration fields with dimensions `[n_trajectories, n_time, x, y]` (MATLAB permutes for correct Python reading)
+- `/uv`: shape `[n_trajectories, n_time, 128, 128, 2]` - Combined concentration fields with dimensions `[n_trajectories, n_time, x, y, channels]` where channel 0 is u and channel 1 is v (MATLAB permutes for correct Python reading)
 - `/x` and `/y`: shape `[128]` - Spatial grid points on domain [-1,1]
 - `/time`: shape `[num_snapshots]` - Time values for each snapshot
+- `/random_seeds`: shape `[n_trajectories]` - Random seed for each trajectory
 
 Grid: Uniform grid via `linspace(-1, 1, 128)` on domain [-1,1]×[-1,1]
 
-Metadata stored as HDF5 attributes on root `/`: `F`, `k`, `delta_u`, `delta_v`, `random_seed`, `initialization`, `num_snapshots`, `grid_size_x`, `grid_size_y`, `domain`, `time_step`, `snapshot_interval`, `final_time`, `scheme`, `dealias`
+Accessing data:
+```python
+# Load combined array
+uv = data['uv']  # shape: [n_trajectories, n_time, x, y, 2]
+
+# Extract u and v fields
+u = uv[..., 0]  # channel 0 = u
+v = uv[..., 1]  # channel 1 = v
+
+# Access specific trajectory and time
+u_snapshot = uv[trajectory_idx, time_idx, :, :, 0]
+v_snapshot = uv[trajectory_idx, time_idx, :, :, 1]
+```
+
+Metadata stored as HDF5 attributes on root `/`: `F`, `k`, `delta_u`, `delta_v`, `n_trajectories`, `initialization`, `num_snapshots`, `grid_size_x`, `grid_size_y`, `domain`, `time_step`, `snapshot_interval`, `final_time`, `scheme`, `dealias`
 
 ### Initialization Types
 
@@ -169,7 +184,21 @@ Check MATLAB logs in `logs/` directory for detailed error messages.
 
 ### Data Loading
 
-Python `load_data.py` reads spatial grids directly from HDF5 `/x` and `/y` datasets. It automatically detects and handles both legacy 3D format `[x, y, time]` and new 4D format `[n_trajectories, n_time, x, y]`. For custom processing, read HDF5 directly with `h5py`.
+Python `load_data.py` reads data from HDF5 `/uv` dataset with shape `[n_trajectories, n_time, x, y, channels]`. The script provides the combined `uv` array for direct access to both fields. For custom processing, read HDF5 directly with `h5py`:
+
+```python
+import h5py
+import numpy as np
+
+with h5py.File('data.h5', 'r') as f:
+    uv = np.array(f['uv'])  # [n_trajectories, n_time, x, y, 2]
+    u = uv[..., 0]  # Extract u field
+    v = uv[..., 1]  # Extract v field
+    x = np.array(f['x'])
+    y = np.array(f['y'])
+    time = np.array(f['time'])
+    random_seeds = np.array(f['random_seeds'])
+```
 
 ## File Locations
 
@@ -179,3 +208,9 @@ Python `load_data.py` reads spatial grids directly from HDF5 `/x` and `/y` datas
 - Monitoring: `slurm_simulation/check_job_status.py`, `slurm_simulation/resume_failed_jobs.sh`
 - Data loading: `simulation/load_data.py`, `visualize_data.py`
 - Outputs: `results/snapshots/`, `logs/`, `results/job_status/`, `results/slurm_logs/`
+
+
+
+### Rules
+
+- dont account for backwards compatibility, except when explicitly asked for it
