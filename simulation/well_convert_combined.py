@@ -287,6 +287,11 @@ def process_single_directory_pair(
         return (dir_name, False, error_msg)
 
 
+def _process_wrapper(args: tuple) -> tuple[str, bool, Optional[str]]:
+    """Wrapper for multiprocessing - unpacks tuple arguments."""
+    return process_single_directory_pair(*args)
+
+
 def main():
     """
     Convert and combine simulation data from two snapshot directories to the well format.
@@ -299,7 +304,7 @@ def main():
     parser.add_argument(
         "--snapshots-dir1",
         type=str,
-        default="./results/snapshots",
+        default="./results/snapshots1",
         help="First directory containing simulation snapshots",
     )
     parser.add_argument(
@@ -372,11 +377,7 @@ def main():
         # Use imap_unordered for real-time progress updates
         results = list(
             tqdm(
-                pool.imap_unordered(
-                    lambda args: process_single_directory_pair(*args),
-                    args_list,
-                    chunksize=1,
-                ),
+                pool.imap_unordered(_process_wrapper, args_list, chunksize=1),
                 total=total_dirs,
                 desc="Converting datasets",
                 unit="dir",
