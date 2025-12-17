@@ -191,6 +191,11 @@ def process_single_directory(
         if not (sim_dir / "metadata.json").exists():
             return (dir_name, False, "metadata.json not found")
 
+        # Check if output file already exists
+        output_file = output_dir / (sim_dir.name + ".hdf5")
+        if output_file.exists():
+            return (dir_name, False, "output already exists")
+
         create_hdf5_dataset(sim_dir, output_dir, verbose=False)
 
         return (dir_name, True, None)
@@ -269,7 +274,7 @@ def main():
 
     # Aggregate results
     for dir_name, converted, error_msg in results:
-        if error_msg and "not found" in error_msg:
+        if error_msg and ("not found" in error_msg or "already exists" in error_msg):
             skipped_count += 1
             continue
 

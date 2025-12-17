@@ -23,7 +23,7 @@ Code for generating pattern formation datasets for the Gray-Scott equations usin
 - Chebfun: https://www.chebfun.org
 
 **For parameter sweeps and analysis:**
-- Python 3.12+ with numpy, h5py and pandas
+- Python 3.12+ with numpy, h5py, tqdm, the_well and pandas
 
 ---
 
