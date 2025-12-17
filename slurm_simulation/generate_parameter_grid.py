@@ -516,7 +516,7 @@ Range format:
         if num_seeds_per_job is not None:
             print(f"\nGenerating {num_seeds_per_job} unique random seeds for each of {len(df)} parameter combinations...")
             # Use numpy's random generator for reproducibility
-            rng = np.random.default_rng(seed=42)
+            rng = np.random.default_rng()
 
             # Generate unique seeds for each row
             # Use a large range to avoid collisions
