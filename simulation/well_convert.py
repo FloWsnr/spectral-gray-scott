@@ -172,22 +172,22 @@ def verify_well_dataset(filename: Path) -> bool:
 
 def process_single_directory(
     sim_dir: Path, output_dir: Path, idx: int, total_dirs: int
-) -> tuple[str, bool, bool, Optional[str]]:
+) -> tuple[str, bool, Optional[str]]:
     """
     Process a single simulation directory.
 
     Returns:
-        tuple: (dir_name, converted_success, verified_success, error_message)
+        tuple: (dir_name, converted_success, error_message)
     """
     dir_name = sim_dir.name
 
     try:
         # Check if required files exist
         if not (sim_dir / "data.h5").exists():
-            return (dir_name, False, False, "data.h5 not found")
+            return (dir_name, False, "data.h5 not found")
 
         if not (sim_dir / "metadata.json").exists():
-            return (dir_name, False, False, "metadata.json not found")
+            return (dir_name, False, "metadata.json not found")
 
         remaining = total_dirs - idx
         progress = (idx / total_dirs) * 100
@@ -195,15 +195,14 @@ def process_single_directory(
             f"\n[{idx}/{total_dirs}] ({progress:.1f}%) Processing {dir_name}... ({remaining} remaining)"
         )
 
-        output_file = create_hdf5_dataset(sim_dir, output_dir)
-        verified = verify_well_dataset(output_file.parent)
+        create_hdf5_dataset(sim_dir, output_dir)
 
-        return (dir_name, True, verified, None)
+        return (dir_name, True, None)
 
     except Exception as e:
         error_msg = str(e)
         print(f"Error processing {dir_name}: {error_msg}")
-        return (dir_name, False, False, error_msg)
+        return (dir_name, False, error_msg)
 
 
 def main():
@@ -255,7 +254,6 @@ def main():
 
     converted_count = 0
     failed_count = 0
-    verified_count = 0
 
     # Process directories in parallel
     with mp.Pool(processes=num_workers) as pool:
@@ -269,24 +267,30 @@ def main():
         results = pool.starmap(process_single_directory, args_list)
 
     # Aggregate results
-    for dir_name, converted, verified, error_msg in results:
+    for dir_name, converted, error_msg in results:
         if error_msg and "not found" in error_msg:
             print(f"Skipped {dir_name}: {error_msg}")
             continue
 
         if converted:
             converted_count += 1
-            if verified:
-                verified_count += 1
         else:
             failed_count += 1
 
     print("\n" + "=" * 60)
     print("Conversion complete!")
     print(f"Successfully converted: {converted_count}")
-    print(f"Successfully verified: {verified_count}")
     print(f"Failed: {failed_count}")
     print(f"Output directory: {output_dir}")
+
+    # Verify the entire dataset
+    if converted_count > 0:
+        print("\n" + "=" * 60)
+        print("Verifying WellDataset...")
+        if verify_well_dataset(output_dir):
+            print("Dataset verification successful!")
+        else:
+            print("Dataset verification failed!")
 
 
 if __name__ == "__main__":
