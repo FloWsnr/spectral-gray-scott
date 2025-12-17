@@ -67,6 +67,21 @@ def combine_and_create_hdf5_dataset(
         time_steps, np.array(h5py.File(sim_dir2 / "data.h5", "r")["time"]).flatten()
     ), "time steps must match"
 
+    # Check for duplicate seeds and remove them from the second set
+    duplicate_mask = np.isin(seeds2, seeds1)
+    n_duplicates = duplicate_mask.sum()
+
+    if n_duplicates > 0:
+        if verbose:
+            duplicate_seeds = seeds2[duplicate_mask]
+            print(f"  Found {n_duplicates} duplicate seed(s): {duplicate_seeds}")
+            print(f"  Removing duplicate trajectories from second dataset")
+
+        # Keep only non-duplicate trajectories from uv2
+        keep_mask = ~duplicate_mask
+        uv2 = uv2[keep_mask]
+        seeds2 = seeds2[keep_mask]
+
     # Combine the trajectories along the first axis
     combined_uv = np.concatenate(
         [uv1, uv2], axis=0
