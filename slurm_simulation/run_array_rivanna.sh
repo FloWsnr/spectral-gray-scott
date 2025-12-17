@@ -216,7 +216,7 @@ echo ""
 
 # Run MATLAB simulation
 # Pass MATLAB array syntax for seeds: [1,2,3,...,100]
-${MATLAB_CMD} -batch "addpath('${SCRIPT_DIR}/simulation'); addpath('${CHEBFUN_DIR}'); gen_gs(${DELTA_U}, ${DELTA_V}, ${F}, ${K}, ${MATLAB_SEED_ARRAY}, '${INIT_TYPE}', ${DT}, ${SNAP_DT}, ${TEND})" \
+${MATLAB_CMD} -batch "addpath('${SCRIPT_DIR}/simulation'); addpath('${CHEBFUN_DIR}'); gen_gs(${DELTA_U}, ${DELTA_V}, ${F}, ${K}, ${MATLAB_SEED_ARRAY}, '${INIT_TYPE}', ${DT}, ${SNAP_DT}, ${TEND}, '${SNAPSHOT_DIR}')" \
     2>&1 | tee "${LOG_FILE}"
 
 EXIT_CODE=$?

@@ -1,8 +1,8 @@
-function gen_gs(delta_u, delta_v, F, k, random_seeds, init_type, dt, snap_dt, tend)
+function gen_gs(delta_u, delta_v, F, k, random_seeds, init_type, dt, snap_dt, tend, snapshot_dir)
 % GEN_GS Generate Gray-Scott reaction-diffusion simulations for multiple random seeds
 %
 % Syntax:
-%   gen_gs(delta_u, delta_v, F, k, random_seeds, init_type, dt, snap_dt, tend)
+%   gen_gs(delta_u, delta_v, F, k, random_seeds, init_type, dt, snap_dt, tend, snapshot_dir)
 %
 % Parameters:
 %   delta_u       - Diffusion coefficient for u
@@ -14,6 +14,7 @@ function gen_gs(delta_u, delta_v, F, k, random_seeds, init_type, dt, snap_dt, te
 %   dt            - Time step size (optional, default: 1)
 %   snap_dt       - Snapshot interval (optional, default: 10)
 %   tend          - Final time (optional, default: 10000)
+%   snapshot_dir  - Base directory for snapshots (optional, default: 'results/snapshots')
 
 init_type = lower(init_type);
 
@@ -31,6 +32,9 @@ if nargin < 8 || isempty(snap_dt)
 end
 if nargin < 9 || isempty(tend)
     tend = 10000;
+end
+if nargin < 10 || isempty(snapshot_dir)
+    snapshot_dir = 'results/snapshots';
 end
 
 % Validate and prepare seed array
@@ -227,8 +231,8 @@ if n_failed > 0
 end
 
 % Create subfolder based on parameters only (excluding random seeds)
-subfolder = sprintf('results/snapshots/F%.3f_k%.3f_du%.1e_dv%.1e_%s', ...
-                    F, k, delta_u, delta_v, init_type);
+subfolder = sprintf('%s/F%.3f_k%.3f_du%.1e_dv%.1e_%s', ...
+                    snapshot_dir, F, k, delta_u, delta_v, init_type);
 
 if ~exist(subfolder, 'dir')
     mkdir(subfolder);

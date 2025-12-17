@@ -116,7 +116,7 @@ LOG_FILE="${LOG_DIR}/F${F}_k${K}_${INIT_TYPE}_$(date +%Y%m%d_%H%M%S).log"
 echo "Starting simulation (log: ${LOG_FILE})"
 echo "Progress will be shown below and saved to log file..."
 echo ""
-${MATLAB_CMD} -batch "addpath('${SCRIPT_DIR}/simulation'); addpath('${CHEBFUN_DIR}'); gen_gs(${DELTA_U}, ${DELTA_V}, ${F}, ${K}, ${RANDOM_SEED}, '${INIT_TYPE}', ${DT}, ${SNAP_DT}, ${TEND})" \
+${MATLAB_CMD} -batch "addpath('${SCRIPT_DIR}/simulation'); addpath('${CHEBFUN_DIR}'); gen_gs(${DELTA_U}, ${DELTA_V}, ${F}, ${K}, ${RANDOM_SEED}, '${INIT_TYPE}', ${DT}, ${SNAP_DT}, ${TEND}, '${SNAPSHOT_DIR}')" \
     2>&1 | tee "${LOG_FILE}"
 
 EXIT_CODE=$?
