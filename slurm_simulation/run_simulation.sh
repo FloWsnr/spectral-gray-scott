@@ -38,7 +38,7 @@ module load MATLAB/2025a
 export CONDA_ROOT=$HOME/miniforge3
 source $CONDA_ROOT/etc/profile.d/conda.sh
 export PATH="$CONDA_ROOT/bin:$PATH"
-conda activate base
+conda activate phys2vec
 
 # Configuration
 # Use SLURM_SUBMIT_DIR (directory from which sbatch was called) for reliability

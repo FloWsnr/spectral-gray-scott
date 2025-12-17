@@ -38,7 +38,7 @@ set -e  # Exit on error
 export CONDA_ROOT=$HOME/miniforge3
 source $CONDA_ROOT/etc/profile.d/conda.sh
 export PATH="$CONDA_ROOT/bin:$PATH"
-conda activate base
+conda activate phys2vec
 # ============================================================================
 # ARRAY JOB PARAMETER READING
 # ============================================================================

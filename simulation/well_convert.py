@@ -9,6 +9,8 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from the_well.data.datasets import WellDataset
+
 
 def create_hdf5_dataset(sim_dir: Path, output_dir: Optional[Path] = None) -> Path:
     """
@@ -34,8 +36,12 @@ def create_hdf5_dataset(sim_dir: Path, output_dir: Optional[Path] = None) -> Pat
     sim_params = ["F", "k", "delta_u", "delta_v"]
 
     # Extract u and v fields from the combined uv array
-    u_data = org_data[..., 0].astype(np.float32)  # shape: [n_trajectories, n_time, x, y]
-    v_data = org_data[..., 1].astype(np.float32)  # shape: [n_trajectories, n_time, x, y]
+    u_data = org_data[..., 0].astype(
+        np.float32
+    )  # shape: [n_trajectories, n_time, x, y]
+    v_data = org_data[..., 1].astype(
+        np.float32
+    )  # shape: [n_trajectories, n_time, x, y]
 
     with h5py.File(filename, "w") as f:
         # Root attributes
@@ -129,6 +135,32 @@ def create_hdf5_dataset(sim_dir: Path, output_dir: Optional[Path] = None) -> Pat
     return filename
 
 
+def verify_well_dataset(filename: Path) -> bool:
+    """
+    Verify the created HDF5 file by loading it with WellDataset and drawing the first sample.
+
+    Returns:
+        True if verification succeeds, False otherwise
+    """
+    try:
+        # Create WellDataset from the file
+        dataset = WellDataset(str(filename))
+
+        # Draw the first sample
+        sample = dataset[0]
+
+        # Print verification info
+        print(f"  Verification successful!")
+        print(f"  Dataset length: {len(dataset)}")
+        print(f"  Sample keys: {list(sample.keys())}")
+
+        return True
+
+    except Exception as e:
+        print(f"  Verification FAILED: {e}")
+        return False
+
+
 def main():
     """
     Convert all simulation data in the snapshots directory to the well format.
@@ -141,13 +173,13 @@ def main():
     parser.add_argument(
         "--snapshots-dir",
         type=str,
-        default="../results/snapshots",
+        default="./results/snapshots",
         help="Directory containing simulation snapshots",
     )
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="../results/well_format",
+        default="./results/well_format",
         help="Output directory for converted files",
     )
 
@@ -169,6 +201,7 @@ def main():
 
     converted_count = 0
     failed_count = 0
+    verified_count = 0
 
     for sim_dir in sim_dirs:
         try:
@@ -182,8 +215,12 @@ def main():
                 continue
 
             print(f"\nProcessing {sim_dir.name}...")
-            create_hdf5_dataset(sim_dir, output_dir)
+            output_file = create_hdf5_dataset(sim_dir, output_dir)
             converted_count += 1
+
+            # Verify the created dataset
+            if verify_well_dataset(output_file.parent):
+                verified_count += 1
 
         except Exception as e:
             print(f"Error processing {sim_dir.name}: {e}")
@@ -193,6 +230,7 @@ def main():
     print("\n" + "=" * 60)
     print("Conversion complete!")
     print(f"Successfully converted: {converted_count}")
+    print(f"Successfully verified: {verified_count}")
     print(f"Failed: {failed_count}")
     print(f"Output directory: {output_dir}")
 
