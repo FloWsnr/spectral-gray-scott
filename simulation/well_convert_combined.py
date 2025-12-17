@@ -369,10 +369,14 @@ def main():
             (sim_dirs1[name], sim_dirs2[name], output_dir) for name in matching_dirs
         ]
 
-        # Use starmap with tqdm for progress tracking
+        # Use imap_unordered for real-time progress updates
         results = list(
             tqdm(
-                pool.starmap(process_single_directory_pair, args_list),
+                pool.imap_unordered(
+                    lambda args: process_single_directory_pair(*args),
+                    args_list,
+                    chunksize=1,
+                ),
                 total=total_dirs,
                 desc="Converting datasets",
                 unit="dir",
