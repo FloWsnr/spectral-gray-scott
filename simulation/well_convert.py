@@ -112,13 +112,21 @@ def create_hdf5_dataset(sim_dir: Path, output_dir: Optional[Path] = None) -> Pat
         t0_fields = f.create_group("t0_fields")
         t0_fields.attrs["field_names"] = ["u", "v"]
 
-        # Load and store u and v fields
-        u_dset = t0_fields.create_dataset("u", data=u_data)
+        # Load and store u and v fields with compression and optimal chunking
+        # Chunk shape: (1 trajectory, 5 timesteps, full spatial grid)
+        # Optimized for random access of 1-5 consecutive timesteps per trajectory
+        chunk_shape = (1, min(5, u_data.shape[1]), u_data.shape[2], u_data.shape[3])
+
+        u_dset = t0_fields.create_dataset(
+            "u", data=u_data, compression="gzip", compression_opts=9, chunks=chunk_shape
+        )
         u_dset.attrs["dim_varying"] = [True, True]
         u_dset.attrs["sample_varying"] = True
         u_dset.attrs["time_varying"] = True
 
-        v_dset = t0_fields.create_dataset("v", data=v_data)
+        v_dset = t0_fields.create_dataset(
+            "v", data=v_data, compression="gzip", compression_opts=9, chunks=chunk_shape
+        )
         v_dset.attrs["dim_varying"] = [True, True]
         v_dset.attrs["sample_varying"] = True
         v_dset.attrs["time_varying"] = True
@@ -197,13 +205,14 @@ def main():
     # Find all simulation directories
     sim_dirs = [d for d in snapshots_dir.iterdir() if d.is_dir()]
 
-    print(f"Found {len(sim_dirs)} simulation directories")
+    total_dirs = len(sim_dirs)
+    print(f"Found {total_dirs} simulation directories")
 
     converted_count = 0
     failed_count = 0
     verified_count = 0
 
-    for sim_dir in sim_dirs:
+    for idx, sim_dir in enumerate(sim_dirs, start=1):
         try:
             # Check if required files exist
             if not (sim_dir / "data.h5").exists():
@@ -214,7 +223,11 @@ def main():
                 print(f"Skipping {sim_dir.name}: metadata.json not found")
                 continue
 
-            print(f"\nProcessing {sim_dir.name}...")
+            remaining = total_dirs - idx
+            progress = (idx / total_dirs) * 100
+            print(
+                f"\n[{idx}/{total_dirs}] ({progress:.1f}%) Processing {sim_dir.name}... ({remaining} remaining)"
+            )
             output_file = create_hdf5_dataset(sim_dir, output_dir)
             converted_count += 1
 
