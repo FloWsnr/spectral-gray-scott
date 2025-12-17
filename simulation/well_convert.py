@@ -14,7 +14,9 @@ from tqdm import tqdm
 from the_well.data.datasets import WellDataset
 
 
-def create_hdf5_dataset(sim_dir: Path, output_dir: Optional[Path] = None, verbose: bool = False) -> Path:
+def create_hdf5_dataset(
+    sim_dir: Path, output_dir: Optional[Path] = None, verbose: bool = False
+) -> Path:
     """
     Create HDF5 file with the specified format.
     """
@@ -115,9 +117,8 @@ def create_hdf5_dataset(sim_dir: Path, output_dir: Optional[Path] = None, verbos
         t0_fields.attrs["field_names"] = ["u", "v"]
 
         # Load and store u and v fields with compression and optimal chunking
-        # Chunk shape: (1 trajectory, 5 timesteps, full spatial grid)
-        # Optimized for random access of 1-5 consecutive timesteps per trajectory
-        chunk_shape = (1, min(5, u_data.shape[1]), u_data.shape[2], u_data.shape[3])
+        # Chunk shape: (1 trajectory, 1 timestep, full spatial grid)
+        chunk_shape = (1, 1, u_data.shape[2], u_data.shape[3])
 
         u_dset = t0_fields.create_dataset(
             "u", data=u_data, compression="gzip", compression_opts=9, chunks=chunk_shape
@@ -268,7 +269,7 @@ def main():
                 pool.starmap(process_single_directory, args_list),
                 total=total_dirs,
                 desc="Converting datasets",
-                unit="dir"
+                unit="dir",
             )
         )
 
