@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import h5py
 import numpy as np
+import multiprocessing as mp
 
 from the_well.data.datasets import WellDataset
 
@@ -158,7 +159,7 @@ def verify_well_dataset(filename: Path) -> bool:
         sample = dataset[0]
 
         # Print verification info
-        print(f"  Verification successful!")
+        print("  Verification successful!")
         print(f"  Dataset length: {len(dataset)}")
         print(f"  Sample keys: {list(sample.keys())}")
 
@@ -167,6 +168,42 @@ def verify_well_dataset(filename: Path) -> bool:
     except Exception as e:
         print(f"  Verification FAILED: {e}")
         return False
+
+
+def process_single_directory(
+    sim_dir: Path, output_dir: Path, idx: int, total_dirs: int
+) -> tuple[str, bool, bool, Optional[str]]:
+    """
+    Process a single simulation directory.
+
+    Returns:
+        tuple: (dir_name, converted_success, verified_success, error_message)
+    """
+    dir_name = sim_dir.name
+
+    try:
+        # Check if required files exist
+        if not (sim_dir / "data.h5").exists():
+            return (dir_name, False, False, "data.h5 not found")
+
+        if not (sim_dir / "metadata.json").exists():
+            return (dir_name, False, False, "metadata.json not found")
+
+        remaining = total_dirs - idx
+        progress = (idx / total_dirs) * 100
+        print(
+            f"\n[{idx}/{total_dirs}] ({progress:.1f}%) Processing {dir_name}... ({remaining} remaining)"
+        )
+
+        output_file = create_hdf5_dataset(sim_dir, output_dir)
+        verified = verify_well_dataset(output_file.parent)
+
+        return (dir_name, True, verified, None)
+
+    except Exception as e:
+        error_msg = str(e)
+        print(f"Error processing {dir_name}: {error_msg}")
+        return (dir_name, False, False, error_msg)
 
 
 def main():
@@ -190,11 +227,18 @@ def main():
         default="./results/well_format",
         help="Output directory for converted files",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Number of parallel workers (default: number of CPU cores)",
+    )
 
     args = parser.parse_args()
 
     snapshots_dir = Path(args.snapshots_dir)
     output_dir = Path(args.output_dir)
+    num_workers = args.workers if args.workers else mp.cpu_count()
 
     if not snapshots_dir.exists():
         print(f"Error: Snapshots directory {snapshots_dir} does not exist")
@@ -207,38 +251,35 @@ def main():
 
     total_dirs = len(sim_dirs)
     print(f"Found {total_dirs} simulation directories")
+    print(f"Using {num_workers} worker processes")
 
     converted_count = 0
     failed_count = 0
     verified_count = 0
 
-    for idx, sim_dir in enumerate(sim_dirs, start=1):
-        try:
-            # Check if required files exist
-            if not (sim_dir / "data.h5").exists():
-                print(f"Skipping {sim_dir.name}: data.h5 not found")
-                continue
+    # Process directories in parallel
+    with mp.Pool(processes=num_workers) as pool:
+        # Create arguments for each directory
+        args_list = [
+            (sim_dir, output_dir, idx, total_dirs)
+            for idx, sim_dir in enumerate(sim_dirs, start=1)
+        ]
 
-            if not (sim_dir / "metadata.json").exists():
-                print(f"Skipping {sim_dir.name}: metadata.json not found")
-                continue
+        # Use starmap to unpack arguments
+        results = pool.starmap(process_single_directory, args_list)
 
-            remaining = total_dirs - idx
-            progress = (idx / total_dirs) * 100
-            print(
-                f"\n[{idx}/{total_dirs}] ({progress:.1f}%) Processing {sim_dir.name}... ({remaining} remaining)"
-            )
-            output_file = create_hdf5_dataset(sim_dir, output_dir)
-            converted_count += 1
-
-            # Verify the created dataset
-            if verify_well_dataset(output_file.parent):
-                verified_count += 1
-
-        except Exception as e:
-            print(f"Error processing {sim_dir.name}: {e}")
-            failed_count += 1
+    # Aggregate results
+    for dir_name, converted, verified, error_msg in results:
+        if error_msg and "not found" in error_msg:
+            print(f"Skipped {dir_name}: {error_msg}")
             continue
+
+        if converted:
+            converted_count += 1
+            if verified:
+                verified_count += 1
+        else:
+            failed_count += 1
 
     print("\n" + "=" * 60)
     print("Conversion complete!")
