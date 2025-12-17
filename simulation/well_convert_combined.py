@@ -1,4 +1,7 @@
-"""Convert simulation data into the well format
+"""Convert and combine simulation data from two directories into the well format
+
+This script combines HDF5 files from two snapshot directories (with identical parameters
+but different random seeds) into a single well format file with 2x the trajectories.
 
 https://polymathic-ai.org/the_well/data_format/
 """
@@ -14,37 +17,81 @@ from tqdm import tqdm
 from the_well.data.datasets import WellDataset
 
 
-def create_hdf5_dataset(
-    sim_dir: Path, output_dir: Optional[Path] = None, verbose: bool = False
+def combine_and_create_hdf5_dataset(
+    sim_dir1: Path,
+    sim_dir2: Path,
+    output_dir: Optional[Path] = None,
+    verbose: bool = False,
 ) -> Path:
     """
-    Create HDF5 file with the specified format.
-    """
-    with open(sim_dir / "metadata.json", "r") as f:
-        metadata = json.load(f)
+    Combine two HDF5 files with different random seeds and create a single well format file.
 
-    with h5py.File(sim_dir / "data.h5", "r") as f:
-        org_data = np.array(f["uv"])  # shape: [n_trajectories, n_time, x, y, 2]
+    Args:
+        sim_dir1: First simulation directory
+        sim_dir2: Second simulation directory (with matching parameters)
+        output_dir: Output directory for the combined file
+        verbose: Print progress messages
+
+    Returns:
+        Path to the created HDF5 file
+    """
+    # Read metadata from first directory
+    with open(sim_dir1 / "metadata.json", "r") as f:
+        metadata1 = json.load(f)
+
+    # Read metadata from second directory
+    with open(sim_dir2 / "metadata.json", "r") as f:
+        metadata2 = json.load(f)
+
+    # Load data from both files
+    with h5py.File(sim_dir1 / "data.h5", "r") as f:
+        uv1 = np.array(f["uv"])  # shape: [n_trajectories, n_time, x, y, 2]
         x_coords = np.array(f["x"]).flatten()
         y_coords = np.array(f["y"]).flatten()
         time_steps = np.array(f["time"]).flatten()
-        random_seeds = np.array(f["random_seeds"]).flatten()
+        seeds1 = np.array(f["random_seeds"]).flatten()
+
+    with h5py.File(sim_dir2 / "data.h5", "r") as f:
+        uv2 = np.array(f["uv"])  # shape: [n_trajectories, n_time, x, y, 2]
+        seeds2 = np.array(f["random_seeds"]).flatten()
+
+    # Verify that the spatial and temporal dimensions match
+    assert uv1.shape[1:] == uv2.shape[1:], "Time and spatial dimensions must match"
+    assert np.allclose(
+        x_coords, np.array(h5py.File(sim_dir2 / "data.h5", "r")["x"]).flatten()
+    ), "x coordinates must match"
+    assert np.allclose(
+        y_coords, np.array(h5py.File(sim_dir2 / "data.h5", "r")["y"]).flatten()
+    ), "y coordinates must match"
+    assert np.allclose(
+        time_steps, np.array(h5py.File(sim_dir2 / "data.h5", "r")["time"]).flatten()
+    ), "time steps must match"
+
+    # Combine the trajectories along the first axis
+    combined_uv = np.concatenate(
+        [uv1, uv2], axis=0
+    )  # shape: [n_traj1 + n_traj2, n_time, x, y, 2]
+
+    # Combine random seeds if available
+    combined_seeds = np.concatenate([seeds1, seeds2], axis=0)
+
+    # Update metadata with combined trajectory count
+    combined_metadata = metadata1.copy()
+    combined_metadata["n_trajectories"] = uv1.shape[0] + uv2.shape[0]
 
     if output_dir is None:
-        output_dir = sim_dir.parent
+        output_dir = sim_dir1.parent
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    filename = output_dir / (
-        sim_dir.name + ".hdf5"
-    )  # name of the dir (all the parameters)
+    filename = output_dir / (sim_dir1.name + ".hdf5")
     sim_params = ["F", "k", "delta_u", "delta_v"]
 
     # Extract u and v fields from the combined uv array
-    u_data = org_data[..., 0].astype(
+    u_data = combined_uv[..., 0].astype(
         np.float32
     )  # shape: [n_trajectories, n_time, x, y]
-    v_data = org_data[..., 1].astype(
+    v_data = combined_uv[..., 1].astype(
         np.float32
     )  # shape: [n_trajectories, n_time, x, y]
 
@@ -52,13 +99,13 @@ def create_hdf5_dataset(
         # Root attributes
         f.attrs["simulation_parameters"] = sim_params
         # add all metadata as attributes
-        for key, val in metadata.items():
+        for key, val in combined_metadata.items():
             f.attrs[key] = val
         f.attrs["dataset_name"] = "gray-scott"
         f.attrs["grid_type"] = "cartesian"
         f.attrs["n_spatial_dims"] = 2
-        f.attrs["n_trajectories"] = metadata["n_trajectories"]
-        f.attrs["random_seeds"] = random_seeds
+        f.attrs["n_trajectories"] = combined_metadata["n_trajectories"]
+        f.attrs["random_seeds"] = combined_seeds
 
         # Create dimensions group
         dims = f.create_group("dimensions")
@@ -109,7 +156,7 @@ def create_hdf5_dataset(
         scalars.attrs["field_names"] = sim_params
 
         for scalar_name in sim_params:
-            data = metadata[scalar_name]
+            data = combined_metadata[scalar_name]
             dset = scalars.create_dataset(scalar_name, data=np.array(data))
             dset.attrs["sample_varying"] = False
             dset.attrs["time_varying"] = False
@@ -145,7 +192,9 @@ def create_hdf5_dataset(
         t2_fields.attrs["field_names"] = []
 
     if verbose:
-        print(f"Created {filename}")
+        print(
+            f"Created {filename} with {combined_metadata['n_trajectories']} trajectories"
+        )
     return filename
 
 
@@ -175,31 +224,37 @@ def verify_well_dataset(filename: Path) -> bool:
         return False
 
 
-def process_single_directory(
-    sim_dir: Path, output_dir: Path
+def process_single_directory_pair(
+    sim_dir1: Path, sim_dir2: Path, output_dir: Path
 ) -> tuple[str, bool, Optional[str]]:
     """
-    Process a single simulation directory.
+    Process a pair of simulation directories with matching parameters.
 
     Returns:
         tuple: (dir_name, converted_success, error_message)
     """
-    dir_name = sim_dir.name
+    dir_name = sim_dir1.name
 
     try:
-        # Check if required files exist
-        if not (sim_dir / "data.h5").exists():
-            return (dir_name, False, "data.h5 not found")
+        # Check if required files exist in both directories
+        if not (sim_dir1 / "data.h5").exists():
+            return (dir_name, False, "data.h5 not found in first directory")
 
-        if not (sim_dir / "metadata.json").exists():
-            return (dir_name, False, "metadata.json not found")
+        if not (sim_dir1 / "metadata.json").exists():
+            return (dir_name, False, "metadata.json not found in first directory")
+
+        if not (sim_dir2 / "data.h5").exists():
+            return (dir_name, False, "data.h5 not found in second directory")
+
+        if not (sim_dir2 / "metadata.json").exists():
+            return (dir_name, False, "metadata.json not found in second directory")
 
         # Check if output file already exists
-        output_file = output_dir / (sim_dir.name + ".hdf5")
+        output_file = output_dir / (sim_dir1.name + ".hdf5")
         if output_file.exists():
             return (dir_name, False, "output already exists")
 
-        create_hdf5_dataset(sim_dir, output_dir, verbose=False)
+        combine_and_create_hdf5_dataset(sim_dir1, sim_dir2, output_dir, verbose=False)
 
         return (dir_name, True, None)
 
@@ -210,23 +265,29 @@ def process_single_directory(
 
 def main():
     """
-    Convert all simulation data in the snapshots directory to the well format.
+    Convert and combine simulation data from two snapshot directories to the well format.
     """
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Convert Gray-Scott simulation data to the well format"
+        description="Combine Gray-Scott simulation data from two directories into well format"
     )
     parser.add_argument(
-        "--snapshots-dir",
+        "--snapshots-dir1",
         type=str,
         default="./results/snapshots",
-        help="Directory containing simulation snapshots",
+        help="First directory containing simulation snapshots",
+    )
+    parser.add_argument(
+        "--snapshots-dir2",
+        type=str,
+        default="./results/snapshots2",
+        help="Second directory containing simulation snapshots with different random seeds",
     )
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="./results/well_format",
+        default="./results/well_format_combined",
         help="Output directory for converted files",
     )
     parser.add_argument(
@@ -238,21 +299,38 @@ def main():
 
     args = parser.parse_args()
 
-    snapshots_dir = Path(args.snapshots_dir)
+    snapshots_dir1 = Path(args.snapshots_dir1)
+    snapshots_dir2 = Path(args.snapshots_dir2)
     output_dir = Path(args.output_dir)
     num_workers = args.workers if args.workers else mp.cpu_count()
 
-    if not snapshots_dir.exists():
-        print(f"Error: Snapshots directory {snapshots_dir} does not exist")
+    if not snapshots_dir1.exists():
+        print(f"Error: First snapshots directory {snapshots_dir1} does not exist")
+        return
+
+    if not snapshots_dir2.exists():
+        print(f"Error: Second snapshots directory {snapshots_dir2} does not exist")
         return
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Find all simulation directories
-    sim_dirs = [d for d in snapshots_dir.iterdir() if d.is_dir()]
+    # Find all simulation directories in first snapshot directory
+    sim_dirs1 = {d.name: d for d in snapshots_dir1.iterdir() if d.is_dir()}
+    sim_dirs2 = {d.name: d for d in snapshots_dir2.iterdir() if d.is_dir()}
 
-    total_dirs = len(sim_dirs)
-    print(f"Found {total_dirs} simulation directories")
+    # Find matching directories (same parameter combinations)
+    matching_dirs = set(sim_dirs1.keys()) & set(sim_dirs2.keys())
+
+    if not matching_dirs:
+        print(
+            "Error: No matching directories found between the two snapshot directories"
+        )
+        return
+
+    total_dirs = len(matching_dirs)
+    print(f"Found {len(sim_dirs1)} directories in {snapshots_dir1}")
+    print(f"Found {len(sim_dirs2)} directories in {snapshots_dir2}")
+    print(f"Found {total_dirs} matching parameter combinations")
     print(f"Using {num_workers} worker processes\n")
 
     converted_count = 0
@@ -260,15 +338,17 @@ def main():
     skipped_count = 0
     failed_dirs = []
 
-    # Process directories in parallel with progress bar
+    # Process directory pairs in parallel with progress bar
     with mp.Pool(processes=num_workers) as pool:
-        # Create arguments for each directory
-        args_list = [(sim_dir, output_dir) for sim_dir in sim_dirs]
+        # Create arguments for each directory pair
+        args_list = [
+            (sim_dirs1[name], sim_dirs2[name], output_dir) for name in matching_dirs
+        ]
 
         # Use starmap with tqdm for progress tracking
         results = list(
             tqdm(
-                pool.starmap(process_single_directory, args_list),
+                pool.starmap(process_single_directory_pair, args_list),
                 total=total_dirs,
                 desc="Converting datasets",
                 unit="dir",
