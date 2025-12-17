@@ -9,11 +9,12 @@ from pathlib import Path
 import h5py
 import numpy as np
 import multiprocessing as mp
+from tqdm import tqdm
 
 from the_well.data.datasets import WellDataset
 
 
-def create_hdf5_dataset(sim_dir: Path, output_dir: Optional[Path] = None) -> Path:
+def create_hdf5_dataset(sim_dir: Path, output_dir: Optional[Path] = None, verbose: bool = False) -> Path:
     """
     Create HDF5 file with the specified format.
     """
@@ -140,7 +141,8 @@ def create_hdf5_dataset(sim_dir: Path, output_dir: Optional[Path] = None) -> Pat
         t2_fields = f.create_group("t2_fields")
         t2_fields.attrs["field_names"] = []
 
-    print(f"Created {filename}")
+    if verbose:
+        print(f"Created {filename}")
     return filename
 
 
@@ -171,7 +173,7 @@ def verify_well_dataset(filename: Path) -> bool:
 
 
 def process_single_directory(
-    sim_dir: Path, output_dir: Path, idx: int, total_dirs: int
+    sim_dir: Path, output_dir: Path
 ) -> tuple[str, bool, Optional[str]]:
     """
     Process a single simulation directory.
@@ -189,19 +191,12 @@ def process_single_directory(
         if not (sim_dir / "metadata.json").exists():
             return (dir_name, False, "metadata.json not found")
 
-        remaining = total_dirs - idx
-        progress = (idx / total_dirs) * 100
-        print(
-            f"\n[{idx}/{total_dirs}] ({progress:.1f}%) Processing {dir_name}... ({remaining} remaining)"
-        )
-
-        create_hdf5_dataset(sim_dir, output_dir)
+        create_hdf5_dataset(sim_dir, output_dir, verbose=False)
 
         return (dir_name, True, None)
 
     except Exception as e:
         error_msg = str(e)
-        print(f"Error processing {dir_name}: {error_msg}")
         return (dir_name, False, error_msg)
 
 
@@ -250,38 +245,52 @@ def main():
 
     total_dirs = len(sim_dirs)
     print(f"Found {total_dirs} simulation directories")
-    print(f"Using {num_workers} worker processes")
+    print(f"Using {num_workers} worker processes\n")
 
     converted_count = 0
     failed_count = 0
+    skipped_count = 0
+    failed_dirs = []
 
-    # Process directories in parallel
+    # Process directories in parallel with progress bar
     with mp.Pool(processes=num_workers) as pool:
         # Create arguments for each directory
-        args_list = [
-            (sim_dir, output_dir, idx, total_dirs)
-            for idx, sim_dir in enumerate(sim_dirs, start=1)
-        ]
+        args_list = [(sim_dir, output_dir) for sim_dir in sim_dirs]
 
-        # Use starmap to unpack arguments
-        results = pool.starmap(process_single_directory, args_list)
+        # Use starmap with tqdm for progress tracking
+        results = list(
+            tqdm(
+                pool.starmap(process_single_directory, args_list),
+                total=total_dirs,
+                desc="Converting datasets",
+                unit="dir"
+            )
+        )
 
     # Aggregate results
     for dir_name, converted, error_msg in results:
         if error_msg and "not found" in error_msg:
-            print(f"Skipped {dir_name}: {error_msg}")
+            skipped_count += 1
             continue
 
         if converted:
             converted_count += 1
         else:
             failed_count += 1
+            failed_dirs.append((dir_name, error_msg))
 
     print("\n" + "=" * 60)
     print("Conversion complete!")
     print(f"Successfully converted: {converted_count}")
+    print(f"Skipped (missing files): {skipped_count}")
     print(f"Failed: {failed_count}")
-    print(f"Output directory: {output_dir}")
+
+    if failed_dirs:
+        print("\nFailed directories:")
+        for dir_name, error_msg in failed_dirs:
+            print(f"  - {dir_name}: {error_msg}")
+
+    print(f"\nOutput directory: {output_dir}")
 
     # Verify the entire dataset
     if converted_count > 0:
