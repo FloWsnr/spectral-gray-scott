@@ -72,8 +72,17 @@ def combine_and_create_hdf5_dataset(
     n_duplicates = duplicate_mask.sum()
 
     if n_duplicates > 0:
-        if verbose:
-            duplicate_seeds = seeds2[duplicate_mask]
+        duplicate_seeds = seeds2[duplicate_mask]
+
+        if n_duplicates == len(seeds2):
+            # All trajectories are duplicates
+            warning_msg = (
+                f"WARNING: All {n_duplicates} trajectories in second dataset are duplicates!\n"
+                f"  Duplicate seeds: {duplicate_seeds}\n"
+                f"  No new trajectories will be added from second dataset."
+            )
+            print(warning_msg)
+        elif verbose:
             print(f"  Found {n_duplicates} duplicate seed(s): {duplicate_seeds}")
             print(f"  Removing duplicate trajectories from second dataset")
 
