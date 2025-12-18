@@ -194,14 +194,14 @@ def combine_and_create_hdf5_dataset(
         chunk_shape = (1, 1, u_data.shape[2], u_data.shape[3])
 
         u_dset = t0_fields.create_dataset(
-            "u", data=u_data, compression="gzip", compression_opts=9, chunks=chunk_shape
+            "u", data=u_data, compression="gzip", compression_opts=4, chunks=chunk_shape
         )
         u_dset.attrs["dim_varying"] = [True, True]
         u_dset.attrs["sample_varying"] = True
         u_dset.attrs["time_varying"] = True
 
         v_dset = t0_fields.create_dataset(
-            "v", data=v_data, compression="gzip", compression_opts=9, chunks=chunk_shape
+            "v", data=v_data, compression="gzip", compression_opts=4, chunks=chunk_shape
         )
         v_dset.attrs["dim_varying"] = [True, True]
         v_dset.attrs["sample_varying"] = True
@@ -323,7 +323,7 @@ def main():
         "--workers",
         type=int,
         default=None,
-        help="Number of parallel workers (default: number of CPU cores)",
+        help="Number of parallel workers (default: 4, optimal for I/O-bound tasks)",
     )
 
     args = parser.parse_args()
@@ -331,7 +331,7 @@ def main():
     snapshots_dir1 = Path(args.snapshots_dir1)
     snapshots_dir2 = Path(args.snapshots_dir2)
     output_dir = Path(args.output_dir)
-    num_workers = args.workers if args.workers else mp.cpu_count()
+    num_workers = args.workers if args.workers else 4
 
     if not snapshots_dir1.exists():
         print(f"Error: First snapshots directory {snapshots_dir1} does not exist")
